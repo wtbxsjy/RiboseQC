@@ -7,9 +7,42 @@ NULL
 
 # Concatenated values of an RleList plus the offset of each element in them
 .cov_values <- function(cov) {
+    if (is(cov, "cov_segments")) {
+        return(cov)
+    }
     lens <- as.numeric(elementNROWS(cov))
     list(v = as.vector(unlist(cov, use.names = FALSE)), off = cumsum(c(0, lens))[seq_along(lens)],
-        len = lens)
+        len = lens, names = names(cov))
+}
+
+# Same content as cov[gr] (an RleList with one element per range of 'gr', named by
+# its seqname) for a coverage RleList 'cov', stored as the concatenated values of
+# 'cov' plus the offset and length of each range. This avoids extracting one Rle
+# per range, which is slow.
+coverage_segments <- function(cov, gr) {
+    cv <- .cov_values(cov)
+    sn <- as.character(seqnames(gr))
+    i <- match(sn, names(cov))
+    stopifnot(!anyNA(i), all(start(gr) >= 1), all(end(gr) <= cv$len[i]))
+    structure(list(v = cv$v, off = cv$off[i] + start(gr) - 1, len = as.numeric(width(gr)), names = sn),
+        class = "cov_segments")
+}
+
+# Names of the elements of an RleList or of coverage_segments()
+segment_names <- function(cov) {
+    if (is(cov, "cov_segments")) cov$names else names(cov)
+}
+
+# Extend the first or last exon (in list order) of each non-empty transcript by 'by' nt,
+# outwards (5' for the first exon, 3' for the last one)
+extend_terminal_exons <- function(grl, which = c("first", "last"), by = 51) {
+    which <- match.arg(which)
+    ex <- unlist(grl, use.names = FALSE)
+    part <- PartitioningByEnd(grl)
+    idx <- if (which == "first") start(part) else end(part)
+    idx <- idx[width(part) > 0]
+    ex[idx] <- resize(ex[idx], width = width(ex[idx]) + by, fix = if (which == "first") "end" else "start")
+    relist(ex, grl)
 }
 
 # Equivalent to t(sapply(cov, function(x) {
@@ -21,7 +54,7 @@ profile_bin_means <- function(cov, nbins) {
     cv <- .cov_values(cov)
     L <- cv$len
     clos <- nbins * (round(L/nbins, digits = 0) + 1)
-    res <- matrix(0, nrow = length(L), ncol = nbins, dimnames = list(names(cov), NULL))
+    res <- matrix(0, nrow = length(L), ncol = nbins, dimnames = list(cv$names, NULL))
     for (cl in unique(clos)) {
         w <- which(clos == cl)
         # positions only depend on the transcript length: compute once per length
@@ -45,10 +78,14 @@ profile_windows <- function(cov, idx_fun) {
         cv$len[i]), logical(1)))
     if (!ok) {
         # out-of-range positions (NA in the original code): fall back to the per-transcript loop
-        return(t(sapply(cov, function(x) as.vector(x)[idx_fun(length(x))])))
+        res <- t(sapply(seq_along(cv$len), function(i) {
+            cv$v[cv$off[i] + seq_len(cv$len[i])][idx_fun(cv$len[i])]
+        }))
+        rownames(res) <- cv$names
+        return(res)
     }
     matrix(cv$v[unlist(idx, use.names = FALSE) + rep(cv$off, each = k)], ncol = k, byrow = TRUE,
-        dimnames = list(names(cov), NULL))
+        dimnames = list(cv$names, NULL))
 }
 
 # Map the positions of a GRangesList (GRanges with a 'score' column, one element

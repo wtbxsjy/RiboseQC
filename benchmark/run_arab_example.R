@@ -29,6 +29,7 @@ if (!file.exists(annot)) {
     save(GTF_annotation, file = annot)
 }
 bams <- file.path(ext, c("simp_arab_root.bam", "simp_arab_shoots.bam"))
+if (nzchar(Sys.getenv("RIBOSEQC_PROF"))) Rprof(Sys.getenv("RIBOSEQC_PROF"), interval = 0.02, line.profiling = TRUE)
 set.seed(1)
 RiboseQC_analysis(annotation_file = annot, bam_files = bams,
                   dest_names = file.path(out_dir, c("root", "shoots")),

@@ -829,13 +829,7 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             if (sum(no5utr) > 0) {
                 tx_notok <- seqnames(tile_5)[no5utr]
                 annot_notok <- ex_annot[tx_notok]
-                annot_ok <- GRangesList(lapply(annot_notok, function(x) {
-                  if (length(x) == 0) {
-                    return(x)
-                  }
-                  x[1] <- resize(x[1], width = width(x[1]) + 51, fix = "end")
-                  x
-                }))
+                annot_ok <- extend_terminal_exons(annot_notok, "first", 51)
                 ex_annot[names(annot_ok)] <- annot_ok
                 
                 seqlengths(tile_cds)[as.vector(tx_notok)] <- sum(width(annot_ok))
@@ -857,14 +851,7 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             if (sum(no3utr) > 0) {
                 tx_notok <- seqnames(tile_3)[no3utr]
                 annot_notok <- ex_annot[tx_notok]
-                annot_ok <- GRangesList(lapply(annot_notok, function(x) {
-                  if (length(x) == 0) {
-                    return(x)
-                  }
-                  x[length(x)] <- resize(x[length(x)], width = width(x[length(x)]) + 
-                    51, fix = "start")
-                  x
-                }))
+                annot_ok <- extend_terminal_exons(annot_notok, "last", 51)
                 ex_annot[names(annot_ok)] <- annot_ok
                 
                 seqlengths(tile_cds)[as.vector(tx_notok)] <- sum(width(annot_ok))
@@ -911,9 +898,9 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                     covtx <- covtx[ok_txs]
                   }
                   
-                  cov_5 <- covtx[tile_5]
-                  cov_3 <- covtx[tile_3]
-                  cov_cds <- covtx[tile_cds]
+                  cov_5 <- coverage_segments(covtx, tile_5)
+                  cov_3 <- coverage_segments(covtx, tile_3)
+                  cov_cds <- coverage_segments(covtx, tile_cds)
                   
                   
                 }
@@ -1753,13 +1740,7 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                 if (sum(no5utr) > 0) {
                   tx_notok <- seqnames(tile_5)[no5utr]
                   annot_notok <- ex_annot[tx_notok]
-                  annot_ok <- GRangesList(lapply(annot_notok, function(x) {
-                    if (length(x) == 0) {
-                      return(x)
-                    }
-                    x[1] <- resize(x[1], width = width(x[1]) + 51, fix = "end")
-                    x
-                  }))
+                  annot_ok <- extend_terminal_exons(annot_notok, "first", 51)
                   ex_annot[names(annot_ok)] <- annot_ok
                   
                   seqlengths(tile_cds)[as.vector(tx_notok)] <- sum(width(annot_ok))
@@ -1781,14 +1762,7 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                 if (sum(no3utr) > 0) {
                   tx_notok <- seqnames(tile_3)[no3utr]
                   annot_notok <- ex_annot[tx_notok]
-                  annot_ok <- GRangesList(lapply(annot_notok, function(x) {
-                    if (length(x) == 0) {
-                      return(x)
-                    }
-                    x[length(x)] <- resize(x[length(x)], width = width(x[length(x)]) + 
-                      51, fix = "start")
-                    x
-                  }))
+                  annot_ok <- extend_terminal_exons(annot_notok, "last", 51)
                   ex_annot[names(annot_ok)] <- annot_ok
                   
                   seqlengths(tile_cds)[as.vector(tx_notok)] <- sum(width(annot_ok))
@@ -1851,13 +1825,13 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                     mp <- group_hits(mp_tx, len)
                     covtx <- coverage(mp, weight = mp$score)
                     covtx <- covtx[ok_txs]
-                    cov_5 <- covtx[tile_5]
-                    cov_3 <- covtx[tile_3]
-                    cov_cds <- covtx[tile_cds]
-                    cov_cds_a <- suppressWarnings(coverage(shift(mp, shift = 3), 
-                      weight = mp$score))[tile_cds]
-                    cov_cds_e <- suppressWarnings(coverage(shift(mp, shift = -3), 
-                      weight = mp$score))[tile_cds]
+                    cov_5 <- coverage_segments(covtx, tile_5)
+                    cov_3 <- coverage_segments(covtx, tile_3)
+                    cov_cds <- coverage_segments(covtx, tile_cds)
+                    cov_cds_a <- coverage_segments(suppressWarnings(coverage(shift(mp, 
+                      shift = 3), weight = mp$score)), tile_cds)
+                    cov_cds_e <- coverage_segments(suppressWarnings(coverage(shift(mp, 
+                      shift = -3), weight = mp$score)), tile_cds)
                     
                   }
                   
@@ -1886,7 +1860,7 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                   es_win_cds <- DataFrame(profile_windows(cov_cds_e, cds_win_idx))
                   
                   # select txs, output codon usage
-                  txs_seqq <- extractTranscriptSeqs(x = genome_seq, transcripts = GTF_annotation$cds_txs[names(cov_cds)])
+                  txs_seqq <- extractTranscriptSeqs(x = genome_seq, transcripts = GTF_annotation$cds_txs[segment_names(cov_cds)])
                   
                   gco <- as.character(names(getGeneticCode("1")))
                   names(gco) <- as.character(getGeneticCode("1"))
