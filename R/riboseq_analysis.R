@@ -592,29 +592,9 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             
             # iterate over genome types and compartments
             for (i in names(list_reads)) {
-                reads_by_length <- list()
-                rdss <- list_reads[[i]]
-                rdss <- split(rdss, mcols(rdss)$len_adj)
-                
                 rgs <- GRangesList(list_locat[[i]])
-                ovs <- lapply(rdss, FUN = function(x) {
-                  suppressWarnings(assay(summarizeOverlaps(reads = x, features = rgs, 
-                    ignore.strand = FALSE, mode = "Union", inter.feature = FALSE)))
-                })
-                nope <- readlengths[which(!readlengths %in% names(ovs))]
-                if (length(nope) > 0) {
-                  for (j in nope) {
-                    nop <- matrix(0, nrow = 7, ncol = 1)
-                    rownames(nop) <- names(rgs)
-                    ovs[[as.character(j)]] <- nop
-                    
-                  }
-                }
-                ovs <- ovs[names(ovs) %in% as.character(readlengths)]
-                ovs <- ovs[as.character(readlengths)]
-                ovs <- do.call(ovs, what = cbind)
-                colnames(ovs) <- paste("reads", readlengths, sep = "_")
-                reads_summary[[i]] <- DataFrame(ovs)
+                reads_summary[[i]] <- DataFrame(count_overlaps_by_readlength(rgs, list_reads[[i]], 
+                  readlengths))
                 
                 
             }
@@ -625,29 +605,9 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             
             # iterate over genome types and compartments
             for (i in names(list_reads_unq)) {
-                reads_by_length <- list()
-                rdss <- list_reads_unq[[i]]
-                rdss <- split(rdss, mcols(rdss)$len_adj)
-                
                 rgs <- GRangesList(list_locat[[i]])
-                ovs <- lapply(rdss, FUN = function(x) {
-                  suppressWarnings(assay(summarizeOverlaps(reads = x, features = rgs, 
-                    ignore.strand = FALSE, mode = "Union", inter.feature = FALSE)))
-                })
-                nope <- readlengths[which(!readlengths %in% names(ovs))]
-                if (length(nope) > 0) {
-                  for (j in nope) {
-                    nop <- matrix(0, nrow = 7, ncol = 1)
-                    rownames(nop) <- names(rgs)
-                    ovs[[as.character(j)]] <- nop
-                    
-                  }
-                }
-                ovs <- ovs[names(ovs) %in% as.character(readlengths)]
-                ovs <- ovs[as.character(readlengths)]
-                ovs <- do.call(ovs, what = cbind)
-                colnames(ovs) <- paste("reads", readlengths, sep = "_")
-                reads_summary_unq[[i]] <- DataFrame(ovs)
+                reads_summary_unq[[i]] <- DataFrame(count_overlaps_by_readlength(rgs, list_reads_unq[[i]], 
+                  readlengths))
                 
                 
             }
@@ -665,7 +625,7 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             reads_pos1 <- GRangesList(lapply(reads_pos1, function(y) {
                 unq <- unique(y)
                 mcols(unq) <- NULL
-                unq$score <- countOverlaps(unq, y, type = "equal")
+                unq$score <- count_identical_ranges(unq, y)
                 unq
                 
             }))
@@ -1601,18 +1561,18 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                   uniq_mm_ps <- sort(c(ps_plus_uniq_mm, ps_neg_uniq_mm))
                   if (length(all_ps) > 0) {
                     ps_res <- unique(all_ps)
-                    ps_res$score <- countOverlaps(ps_res, all_ps, type = "equal")
+                    ps_res$score <- count_identical_ranges(ps_res, all_ps)
                     all_ps <- ps_res
                   }
                   if (length(uniq_ps) > 0) {
                     ps_res <- unique(uniq_ps)
-                    ps_res$score <- countOverlaps(ps_res, uniq_ps, type = "equal")
+                    ps_res$score <- count_identical_ranges(ps_res, uniq_ps)
                     uniq_ps <- ps_res
                     
                   }
                   if (length(uniq_mm_ps) > 0) {
                     ps_res <- unique(uniq_mm_ps)
-                    ps_res$score <- countOverlaps(ps_res, uniq_mm_ps, type = "equal")
+                    ps_res$score <- count_identical_ranges(ps_res, uniq_mm_ps)
                     uniq_mm_ps <- ps_res
                     
                   }
@@ -1918,12 +1878,10 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                   mp_3 <- map_scored_to_txs(ps_comp[names(ps_comp) != "all"], threes_gen, 
                     names(threes_gen), sum(width(threes_gen)))
                   mp_cds <- map_scored_to_txs(ps_comp[names(ps_comp) != "all"], cds_gen, 
-                    names(cds_gen), sum(width(cds_gen)))
-                  strand(mp_cds) <- "+"
+                    names(cds_gen), sum(width(cds_gen)), strand_plus = TRUE)
                 } else {
                   mp_tx <- map_scored_to_txs(ps_comp[names(ps_comp) != "all"], ex_annot[as.vector(seqnames(tile_cds))], 
-                    seqlevels(tile_cds), seqlengths(tile_cds))
-                  strand(mp_tx) <- "+"
+                    seqlevels(tile_cds), seqlengths(tile_cds), strand_plus = TRUE)
                 }
                 
                 for (len in unique(c("all", names(ps_comp)))) {

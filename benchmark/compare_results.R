@@ -28,7 +28,13 @@ walk <- function(a, b, path = "res_all") {
         return(invisible())
     }
     r <- all.equal(a, b, tolerance = 0, check.attributes = TRUE)
-    if (!isTRUE(r)) cat("DIFF at", path, ":", head(r, 3), "\n") else n_ok <<- n_ok + 1
+    if (!isTRUE(r)) {
+        cat("DIFF at", path, ":", head(r, 3), "\n")
+    } else if (!identical(a, b)) {
+        cat("EQUAL VALUES, NOT IDENTICAL (type/attributes) at", path, "\n")
+    } else {
+        n_ok <<- n_ok + 1
+    }
 }
 n_ok <- 0
 for (f in list.files(ref_dir, pattern = "_results_RiboseQC_all$|_results_RiboseQC$|_for_ORFquant$|_junctions$")) {

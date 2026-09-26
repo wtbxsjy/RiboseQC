@@ -24,7 +24,9 @@ profile_bin_means <- function(cov, nbins) {
     res <- matrix(0, nrow = length(L), ncol = nbins, dimnames = list(names(cov), NULL))
     for (cl in unique(clos)) {
         w <- which(clos == cl)
-        idx <- lapply(L[w], function(l) as.integer(seq(1, l, length.out = cl)))
+        # positions only depend on the transcript length: compute once per length
+        ul <- unique(L[w])
+        idx <- lapply(ul, function(l) as.integer(seq(1, l, length.out = cl)))[match(L[w], ul)]
         vals <- cv$v[unlist(idx, use.names = FALSE) + rep(cv$off[w], each = cl)]
         # each column of this matrix holds one bin of one transcript, as in the original matrix()
         means <- colMeans(matrix(vals, nrow = cl/nbins))
@@ -50,24 +52,28 @@ profile_windows <- function(cov, idx_fun) {
 }
 
 # Map the positions of a GRangesList (GRanges with a 'score' column, one element
-# per read length) to transcripts in a single call and return the mapped hits,
-# carrying the score and the list element (read length) each hit comes from.
-map_scored_to_txs <- function(grl, transcripts, seqlevs, seqlens) {
+# per read length) to transcripts in a single call. Returns the mapped hits
+# ("all", carrying the score of each hit) and the same hits split by the list
+# element (read length) they come from.
+map_scored_to_txs <- function(grl, transcripts, seqlevs, seqlens, strand_plus = FALSE) {
     gr <- unlist(grl, use.names = FALSE)
     mp <- mapToTranscripts(gr, transcripts = transcripts)
     mp$score <- gr$score[mp$xHits]
-    mp$group <- rep(names(grl), elementNROWS(grl))[mp$xHits]
     seqlevels(mp) <- seqlevs
     seqlengths(mp) <- seqlens
-    mp
+    if (strand_plus) {
+        strand(mp) <- "+"
+    }
+    group <- factor(rep(names(grl), elementNROWS(grl))[mp$xHits], levels = unique(names(grl)))
+    list(all = mp, by_group = split(mp, group))
 }
 
 # Hits belonging to one group ("all" = every hit)
-group_hits <- function(mp, group) {
+group_hits <- function(mapped, group) {
     if (group == "all") {
-        return(mp)
+        return(mapped$all)
     }
-    mp[mp$group == group]
+    mapped$by_group[[group]]
 }
 
 # Weighted coverage of the hits belonging to one group
@@ -84,4 +90,28 @@ codon_sums <- function(pt, gco) {
     names(ps_cntt) <- gco
     ps_cntt[rownames(sums)] <- sums[, 1]
     ps_cntt
+}
+
+# Number of reads overlapping each feature, per read length (one column per value
+# of 'readlengths'). Same as calling summarizeOverlaps(mode = "Union",
+# inter.feature = FALSE, ignore.strand = FALSE) on the reads of each read length
+# and binding the counts, but with a single findOverlaps() call.
+count_overlaps_by_readlength <- function(features, reads, readlengths) {
+    len <- mcols(reads)$len_adj
+    ov <- suppressWarnings(findOverlaps(features, reads, ignore.strand = FALSE))
+    counts <- table(factor(queryHits(ov), levels = seq_along(features)), factor(len[subjectHits(ov)], 
+        levels = readlengths))
+    counts <- matrix(as.integer(counts), nrow = length(features), dimnames = list(names(features), 
+        paste("reads", readlengths, sep = "_")))
+    # the original code filled read lengths absent from the reads with (double) zeros
+    if (!all(readlengths %in% len)) {
+        storage.mode(counts) <- "double"
+    }
+    counts
+}
+
+# For each range in 'unq' (unique ranges), the number of ranges in 'y' that are
+# identical to it; same as countOverlaps(unq, y, type = "equal") for stranded ranges.
+count_identical_ranges <- function(unq, y) {
+    tabulate(match(y, unq), nbins = length(unq))
 }
