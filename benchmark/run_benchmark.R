@@ -1,5 +1,5 @@
 # Run RiboseQC_analysis on the nf-core/riboseq test BAMs and report timings.
-# Usage: Rscript run_benchmark.R <pkg_dir> <out_dir> [data_dir] [profile(TRUE/FALSE)]
+# Usage: Rscript run_benchmark.R <pkg_dir> <out_dir> [data_dir] [profile(TRUE/FALSE)] [chunk_size]
 args <- commandArgs(trailingOnly = TRUE)
 pkg_dir <- normalizePath(args[1])
 out_dir <- args[2]
@@ -10,6 +10,8 @@ suppressPackageStartupMessages(devtools::load_all(pkg_dir, quiet = TRUE))
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 out_dir <- normalizePath(out_dir)
 bams <- file.path(data_dir, c("SRX11780887_chr20.bam", "SRX11780888_chr20.bam"))
+# RIBOSEQC_BAMS: optional comma-separated list of BAM paths to use instead
+if (nzchar(Sys.getenv("RIBOSEQC_BAMS"))) bams <- normalizePath(strsplit(Sys.getenv("RIBOSEQC_BAMS"), ",")[[1]])
 annot <- file.path(data_dir, "annot", "Homo_sapiens.GRCh38.111_chr20.gtf_Rannot")
 dest <- file.path(out_dir, sub(".bam$", "", basename(bams)))
 if (do_prof) Rprof(file.path(out_dir, "Rprof.out"), interval = 0.02, line.profiling = TRUE)

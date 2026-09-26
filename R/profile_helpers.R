@@ -115,3 +115,60 @@ count_overlaps_by_readlength <- function(features, reads, readlengths) {
 count_identical_ranges <- function(unq, y) {
     tabulate(match(y, unq), nbins = length(unq))
 }
+
+# Contiguous range of read lengths covering the "reads_<length>" columns of two tables
+readlength_union <- function(a, b) {
+    rls <- as.integer(sub("^reads_", "", c(colnames(a), colnames(b))))
+    seq(min(rls), max(rls))
+}
+
+# Pad a table with "reads_<length>" columns (data.frame or DataFrame) with zero
+# columns so that it covers the read lengths 'rls'
+pad_readlength_cols <- function(d, rls) {
+    cols <- paste("reads", rls, sep = "_")
+    if (identical(colnames(d), cols)) {
+        return(d)
+    }
+    m <- as.matrix(d)
+    out <- matrix(0, nrow = nrow(m), ncol = length(cols), dimnames = list(rownames(m), cols))
+    out[, colnames(m)] <- m
+    if (is(d, "DataFrame")) {
+        return(DataFrame(out, check.names = FALSE))
+    }
+    as.data.frame(out)
+}
+
+# Pad all read-length-dependent tables of a (chunk) result of the BAM statistics pass
+pad_readlength_stats <- function(res, rls) {
+    for (nm in c("rld", "rld_unq")) {
+        res[[nm]] <- pad_readlength_cols(res[[nm]], rls)
+    }
+    for (nm in c("reads_summary", "reads_summary_unq")) {
+        res[[nm]] <- lapply(res[[nm]], pad_readlength_cols, rls = rls)
+    }
+    res
+}
+
+# Read length after removing soft-clipped bases, i.e. qwidth(x) minus the "S" operations
+read_length_no_softclip <- function(x) {
+    cigarWidthAlongQuerySpace(cigar(x), after.soft.clipping = TRUE)
+}
+
+# Counts of all reads and of the reads flagged in 'is_uniq' overlapping each feature.
+# Same as two summarizeOverlaps(mode = "Union", inter.feature = FALSE) calls on
+# 'reads' and reads[is_uniq], but computing the overlaps only once.
+count_overlaps_all_uniq <- function(features, reads, is_uniq, ignore.strand) {
+    if (ignore.strand) {
+        # as done by summarizeOverlaps()
+        if (is(features, "GRangesList")) {
+            r <- unlist(features)
+            strand(r) <- "*"
+            features@unlistData <- r
+        } else {
+            strand(features) <- "*"
+        }
+    }
+    ov <- findOverlaps(features, reads, ignore.strand = ignore.strand)
+    as_counts <- function(cnt) matrix(cnt, ncol = 1, dimnames = list(names(features), "reads"))
+    list(all = as_counts(countQueryHits(ov)), uniq = as_counts(countQueryHits(ov[is_uniq[subjectHits(ov)]])))
+}
