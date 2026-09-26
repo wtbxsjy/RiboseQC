@@ -1786,6 +1786,7 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                 ps_tiles <- DataFrameList()
                 ps_win <- DataFrameList()
                 cod_win <- DataFrameList()
+                txs_seqq_names <- NULL
                 ps_cod <- DataFrameList()
                 ps_cod_rat <- DataFrameList()
                 
@@ -1860,7 +1861,14 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                   es_win_cds <- DataFrame(profile_windows(cov_cds_e, cds_win_idx))
                   
                   # select txs, output codon usage
-                  txs_seqq <- extractTranscriptSeqs(x = genome_seq, transcripts = GTF_annotation$cds_txs[segment_names(cov_cds)])
+                  # sequences (and codons below) only depend on the transcripts, not on
+                  # the read length: extract them once per set of transcripts
+                  tx_names <- segment_names(cov_cds)
+                  if (!identical(tx_names, txs_seqq_names)) {
+                    txs_seqq <- extractTranscriptSeqs(x = genome_seq, transcripts = GTF_annotation$cds_txs[tx_names])
+                    txs_seqq_names <- tx_names
+                    codon_cache <- list()
+                  }
                   
                   gco <- as.character(names(getGeneticCode("1")))
                   names(gco) <- as.character(getGeneticCode("1"))
@@ -1889,10 +1897,13 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                   esit_counts <- c()
                   # Calculate codon occurrence and occupancy for different CDS sections OUTPUT AA?
                   for (i in iters) {
-                    a <- narrow(txs_seqq, start = st_pos + 3 * i, end = st_pos + 
-                      (2 + 3 * i))
-                    coood <- as.character(a)
-                    at <- table(a)
+                    key <- paste("st_pos", i)
+                    if (is.null(codon_cache[[key]])) {
+                      a <- narrow(txs_seqq, start = st_pos + 3 * i, end = st_pos + (2 + 3 * i))
+                      codon_cache[[key]] <- list(coood = as.character(a), at = table(a))
+                    }
+                    coood <- codon_cache[[key]]$coood
+                    at <- codon_cache[[key]]$at
                     cod_cntt <- rep(0, length(gco))
                     names(cod_cntt) <- gco
                     cod_cntt[names(at)] <- as.numeric(at)
@@ -1917,10 +1928,13 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                   }
                   # mid
                   for (i in iters) {
-                    a <- narrow(txs_seqq, start = mid_pos + 3 * i, end = mid_pos + 
-                      (2 + 3 * i))
-                    coood <- as.character(a)
-                    at <- table(a)
+                    key <- paste("mid_pos", i)
+                    if (is.null(codon_cache[[key]])) {
+                      a <- narrow(txs_seqq, start = mid_pos + 3 * i, end = mid_pos + (2 + 3 * i))
+                      codon_cache[[key]] <- list(coood = as.character(a), at = table(a))
+                    }
+                    coood <- codon_cache[[key]]$coood
+                    at <- codon_cache[[key]]$at
                     cod_cntt <- rep(0, length(gco))
                     names(cod_cntt) <- gco
                     cod_cntt[names(at)] <- as.numeric(at)
@@ -1942,10 +1956,13 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                   }
                   # end
                   for (i in iters) {
-                    a <- narrow(txs_seqq, start = end_pos + 3 * i, end = end_pos + 
-                      (2 + 3 * i))
-                    coood <- as.character(a)
-                    at <- table(a)
+                    key <- paste("end_pos", i)
+                    if (is.null(codon_cache[[key]])) {
+                      a <- narrow(txs_seqq, start = end_pos + 3 * i, end = end_pos + (2 + 3 * i))
+                      codon_cache[[key]] <- list(coood = as.character(a), at = table(a))
+                    }
+                    coood <- codon_cache[[key]]$coood
+                    at <- codon_cache[[key]]$at
                     cod_cntt <- rep(0, length(gco))
                     names(cod_cntt) <- gco
                     cod_cntt[names(at)] <- as.numeric(at)
