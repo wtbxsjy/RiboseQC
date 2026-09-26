@@ -976,36 +976,27 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             ps_tiles <- DataFrameList()
             ps_win <- DataFrameList()
             
-            for (len in c("all", names(ps_comp))) {
+            # map all 5' ends to transcripts once, then split the hits by read length
+            if ((sum(no3utr) + sum(no5utr)) == 0) {
+                mp_5 <- map_scored_to_txs(ps_comp[names(ps_comp) != "all"], fivs_gen, names(fivs_gen), sum(width(fivs_gen)))
+                mp_3 <- map_scored_to_txs(ps_comp[names(ps_comp) != "all"], threes_gen, names(threes_gen), sum(width(threes_gen)))
+                mp_cds <- map_scored_to_txs(ps_comp[names(ps_comp) != "all"], cds_gen, names(cds_gen), sum(width(cds_gen)))
+            } else {
+                mp_tx <- map_scored_to_txs(ps_comp[names(ps_comp) != "all"], ex_annot[as.vector(seqnames(tile_cds))], 
+                  seqlevels(tile_cds), seqlengths(tile_cds))
+            }
+            
+            for (len in unique(c("all", names(ps_comp)))) {
                 
                 if ((sum(no3utr) + sum(no5utr)) == 0) {
-                  mp <- mapToTranscripts(ps_comp[[len]], transcripts = fivs_gen)
-                  mp$score <- ps_comp[[len]]$score[mp$xHits]
-                  seqlevels(mp) <- names(fivs_gen)
-                  seqlengths(mp) <- sum(width(fivs_gen))
-                  cov_5 <- coverage(mp, weight = mp$score)
-                  
-                  
-                  mp <- mapToTranscripts(ps_comp[[len]], transcripts = threes_gen)
-                  mp$score <- ps_comp[[len]]$score[mp$xHits]
-                  seqlevels(mp) <- names(threes_gen)
-                  seqlengths(mp) <- sum(width(threes_gen))
-                  cov_3 <- coverage(mp, weight = mp$score)
-                  
-                  mp <- mapToTranscripts(ps_comp[[len]], transcripts = cds_gen)
-                  mp$score <- ps_comp[[len]]$score[mp$xHits]
-                  seqlevels(mp) <- names(cds_gen)
-                  seqlengths(mp) <- sum(width(cds_gen))
-                  cov_cds <- coverage(mp, weight = mp$score)
+                  cov_5 <- group_coverage(mp_5, len)
+                  cov_3 <- group_coverage(mp_3, len)
+                  cov_cds <- group_coverage(mp_cds, len)
                 }
                 
                 if ((sum(no3utr) + sum(no5utr)) > 0) {
                   if (len != "all") {
-                    mp <- mapToTranscripts(ps_comp[[len]], transcripts = ex_annot[as.vector(seqnames(tile_cds))])
-                    mp$score <- ps_comp[[len]]$score[mp$xHits]
-                    seqlevels(mp) <- seqlevels(tile_cds)
-                    seqlengths(mp) <- seqlengths(tile_cds)
-                    covtx <- coverage(mp, weight = mp$score)
+                    covtx <- group_coverage(mp_tx, len)
                     covtx <- covtx[ok_txs]
                   }
                   
@@ -1016,35 +1007,23 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                   
                 }
                 
-                ps_tiles_5 <- DataFrame(t(sapply(cov_5, function(x) {
-                  clos <- 50 * (round(length(x)/50, digits = 0) + 1)
-                  idx <- as.integer(seq(1, length(x), length.out = clos))
-                  colMeans(matrix(x[idx], ncol = 50))
-                })))
-                ps_win_5 <- DataFrame(t(sapply(cov_5, function(x) {
-                  as.vector(x)[c(1:25, (length(x) - 25):(length(x) - 1))]
-                })))
+                ps_tiles_5 <- DataFrame(profile_bin_means(cov_5, 50))
+                ps_win_5 <- DataFrame(profile_windows(cov_5, function(l) {
+                  c(1:25, (l - 25):(l - 1))
+                }))
                 
-                ps_tiles_3 <- DataFrame(t(sapply(cov_3, function(x) {
-                  clos <- 50 * (round(length(x)/50, digits = 0) + 1)
-                  idx <- as.integer(seq(1, length(x), length.out = clos))
-                  colMeans(matrix(x[idx], ncol = 50))
-                })))
-                ps_win_3 <- DataFrame(t(sapply(cov_3, function(x) {
-                  as.vector(x)[c(2:26, (length(x) - 24):length(x))]
-                })))
+                ps_tiles_3 <- DataFrame(profile_bin_means(cov_3, 50))
+                ps_win_3 <- DataFrame(profile_windows(cov_3, function(l) {
+                  c(2:26, (l - 24):l)
+                }))
                 
                 
-                ps_tiles_cds <- DataFrame(t(sapply(cov_cds, function(x) {
-                  clos <- 100 * (round(length(x)/100, digits = 0) + 1)
-                  idx <- as.integer(seq(1, length(x), length.out = clos))
-                  colMeans(matrix(x[idx], ncol = 100))
-                })))
-                ps_win_cds <- DataFrame(t(sapply(cov_cds, function(x) {
-                  rnd <- as.integer(length(x)/2)%%3
-                  mid <- (as.integer(length(x)/2) - rnd)
-                  as.vector(x)[c(1:33, (mid - 17):(mid + 15), (length(x) - 32):length(x))]
-                })))
+                ps_tiles_cds <- DataFrame(profile_bin_means(cov_cds, 100))
+                ps_win_cds <- DataFrame(profile_windows(cov_cds, function(l) {
+                  rnd <- as.integer(l/2)%%3
+                  mid <- (as.integer(l/2) - rnd)
+                  c(1:33, (mid - 17):(mid + 15), (l - 32):l)
+                }))
                 tls <- cbind(ps_tiles_5, ps_tiles_cds, ps_tiles_3)
                 colnames(tls) <- c(paste("5_UTR", 1:length(ps_tiles_5[1, ]), sep = "_"), 
                   paste("CDS", 1:length(ps_tiles_cds[1, ]), sep = "_"), paste("3_UTR", 
@@ -1932,27 +1911,27 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                 es_cod <- DataFrameList()
                 es_cod_rat <- DataFrameList()
                 
-                for (len in c("all", names(ps_comp))) {
+                # map all P-sites to transcripts once, then split the hits by read length
+                if ((sum(no3utr) + sum(no5utr)) == 0) {
+                  mp_5 <- map_scored_to_txs(ps_comp[names(ps_comp) != "all"], fivs_gen, 
+                    names(fivs_gen), sum(width(fivs_gen)))
+                  mp_3 <- map_scored_to_txs(ps_comp[names(ps_comp) != "all"], threes_gen, 
+                    names(threes_gen), sum(width(threes_gen)))
+                  mp_cds <- map_scored_to_txs(ps_comp[names(ps_comp) != "all"], cds_gen, 
+                    names(cds_gen), sum(width(cds_gen)))
+                  strand(mp_cds) <- "+"
+                } else {
+                  mp_tx <- map_scored_to_txs(ps_comp[names(ps_comp) != "all"], ex_annot[as.vector(seqnames(tile_cds))], 
+                    seqlevels(tile_cds), seqlengths(tile_cds))
+                  strand(mp_tx) <- "+"
+                }
+                
+                for (len in unique(c("all", names(ps_comp)))) {
                   
                   if ((sum(no3utr) + sum(no5utr)) == 0) {
-                    mp <- mapToTranscripts(ps_comp[[len]], transcripts = fivs_gen)
-                    mp$score <- ps_comp[[len]]$score[mp$xHits]
-                    seqlevels(mp) <- names(fivs_gen)
-                    seqlengths(mp) <- sum(width(fivs_gen))
-                    cov_5 <- coverage(mp, weight = mp$score)
-                    
-                    
-                    mp <- mapToTranscripts(ps_comp[[len]], transcripts = threes_gen)
-                    mp$score <- ps_comp[[len]]$score[mp$xHits]
-                    seqlevels(mp) <- names(threes_gen)
-                    seqlengths(mp) <- sum(width(threes_gen))
-                    cov_3 <- coverage(mp, weight = mp$score)
-                    
-                    mp <- mapToTranscripts(ps_comp[[len]], transcripts = cds_gen)
-                    mp$score <- ps_comp[[len]]$score[mp$xHits]
-                    seqlevels(mp) <- names(cds_gen)
-                    seqlengths(mp) <- sum(width(cds_gen))
-                    strand(mp) <- "+"
+                    cov_5 <- group_coverage(mp_5, len)
+                    cov_3 <- group_coverage(mp_3, len)
+                    mp <- group_hits(mp_cds, len)
                     cov_cds <- coverage(mp, weight = mp$score)
                     cov_cds_a <- suppressWarnings(coverage(shift(mp, shift = 3), 
                       weight = mp$score))
@@ -1962,11 +1941,7 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                   
                   if ((sum(no3utr) + sum(no5utr)) > 0) {
                     
-                    mp <- mapToTranscripts(ps_comp[[len]], transcripts = ex_annot[as.vector(seqnames(tile_cds))])
-                    mp$score <- ps_comp[[len]]$score[mp$xHits]
-                    seqlevels(mp) <- seqlevels(tile_cds)
-                    seqlengths(mp) <- seqlengths(tile_cds)
-                    strand(mp) <- "+"
+                    mp <- group_hits(mp_tx, len)
                     covtx <- coverage(mp, weight = mp$score)
                     covtx <- covtx[ok_txs]
                     cov_5 <- covtx[tile_5]
@@ -1979,51 +1954,29 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                     
                   }
                   
-                  ps_tiles_5 <- DataFrame(t(sapply(cov_5, function(x) {
-                    clos <- 50 * (round(length(x)/50, digits = 0) + 1)
-                    idx <- as.integer(seq(1, length(x), length.out = clos))
-                    colMeans(matrix(x[idx], ncol = 50))
-                  })))
-                  ps_win_5 <- DataFrame(t(sapply(cov_5, function(x) {
-                    as.vector(x)[c(seq_len(25), (length(x) - 25):(length(x) - 1))]
-                  })))
+                  cds_win_idx <- function(l) {
+                    rnd <- as.integer(l/2)%%3
+                    mid <- (as.integer(l/2) - rnd)
+                    c(seq_len(33), (mid - 17):(mid + 15), (l - 32):l)
+                  }
+                  ps_tiles_5 <- DataFrame(profile_bin_means(cov_5, 50))
+                  ps_win_5 <- DataFrame(profile_windows(cov_5, function(l) {
+                    c(seq_len(25), (l - 25):(l - 1))
+                  }))
                   
                   
-                  ps_tiles_3 <- DataFrame(t(sapply(cov_3, function(x) {
-                    clos <- 50 * (round(length(x)/50, digits = 0) + 1)
-                    idx <- as.integer(seq(1, length(x), length.out = clos))
-                    colMeans(matrix(x[idx], ncol = 50))
-                  })))
-                  ps_win_3 <- DataFrame(t(sapply(cov_3, function(x) {
-                    as.vector(x)[c(2:26, (length(x) - 24):length(x))]
-                  })))
+                  ps_tiles_3 <- DataFrame(profile_bin_means(cov_3, 50))
+                  ps_win_3 <- DataFrame(profile_windows(cov_3, function(l) {
+                    c(2:26, (l - 24):l)
+                  }))
                   
                   
-                  ps_tiles_cds <- DataFrame(t(sapply(cov_cds, function(x) {
-                    clos <- 100 * (round(length(x)/100, digits = 0) + 1)
-                    idx <- as.integer(seq(1, length(x), length.out = clos))
-                    colMeans(matrix(x[idx], ncol = 100))
-                  })))
-                  ps_win_cds <- DataFrame(t(sapply(cov_cds, function(x) {
-                    rnd <- as.integer(length(x)/2)%%3
-                    mid <- (as.integer(length(x)/2) - rnd)
-                    as.vector(x)[c(seq_len(33), (mid - 17):(mid + 15), (length(x) - 
-                      32):length(x))]
-                  })))
+                  ps_tiles_cds <- DataFrame(profile_bin_means(cov_cds, 100))
+                  ps_win_cds <- DataFrame(profile_windows(cov_cds, cds_win_idx))
                   
-                  as_win_cds <- DataFrame(t(sapply(cov_cds_a, function(x) {
-                    rnd <- as.integer(length(x)/2)%%3
-                    mid <- (as.integer(length(x)/2) - rnd)
-                    as.vector(x)[c(seq_len(33), (mid - 17):(mid + 15), (length(x) - 
-                      32):length(x))]
-                  })))
+                  as_win_cds <- DataFrame(profile_windows(cov_cds_a, cds_win_idx))
                   
-                  es_win_cds <- DataFrame(t(sapply(cov_cds_e, function(x) {
-                    rnd <- as.integer(length(x)/2)%%3
-                    mid <- (as.integer(length(x)/2) - rnd)
-                    as.vector(x)[c(seq_len(33), (mid - 17):(mid + 15), (length(x) - 
-                      32):length(x))]
-                  })))
+                  es_win_cds <- DataFrame(profile_windows(cov_cds_e, cds_win_idx))
                   
                   # select txs, output codon usage
                   txs_seqq <- extractTranscriptSeqs(x = genome_seq, transcripts = GTF_annotation$cds_txs[names(cov_cds)])
@@ -2065,28 +2018,19 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                     cod_counts <- cbind(cod_counts, cod_cntt)
                     pt <- rowSums(as.matrix(ps_win_cds[, (1 + 3 * i):(3 + 3 * i)]))
                     names(pt) <- coood
-                    pt <- aggregate(pt, list(names(pt)), sum)
-                    ps_cntt <- rep(0, length(gco))
-                    names(ps_cntt) <- gco
-                    ps_cntt[pt[, 1]] <- pt[, 2]
+                    ps_cntt <- codon_sums(pt, gco)
                     psit_counts <- cbind(psit_counts, ps_cntt)
                     
                     
                     pt <- rowSums(as.matrix(as_win_cds[, (1 + 3 * i):(3 + 3 * i)]))
                     names(pt) <- coood
-                    pt <- aggregate(pt, list(names(pt)), sum)
-                    ps_cntt <- rep(0, length(gco))
-                    names(ps_cntt) <- gco
-                    ps_cntt[pt[, 1]] <- pt[, 2]
+                    ps_cntt <- codon_sums(pt, gco)
                     asit_counts <- cbind(asit_counts, ps_cntt)
                     
                     
                     pt <- rowSums(as.matrix(es_win_cds[, (1 + 3 * i):(3 + 3 * i)]))
                     names(pt) <- coood
-                    pt <- aggregate(pt, list(names(pt)), sum)
-                    ps_cntt <- rep(0, length(gco))
-                    names(ps_cntt) <- gco
-                    ps_cntt[pt[, 1]] <- pt[, 2]
+                    ps_cntt <- codon_sums(pt, gco)
                     esit_counts <- cbind(esit_counts, ps_cntt)
                     
                   }
@@ -2102,26 +2046,17 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                     cod_counts <- cbind(cod_counts, cod_cntt)
                     pt <- rowSums(as.matrix(ps_win_cds[, (34 + 3 * i):(36 + 3 * i)]))
                     names(pt) <- coood
-                    pt <- aggregate(pt, list(names(pt)), sum)
-                    ps_cntt <- rep(0, length(gco))
-                    names(ps_cntt) <- gco
-                    ps_cntt[pt[, 1]] <- pt[, 2]
+                    ps_cntt <- codon_sums(pt, gco)
                     psit_counts <- cbind(psit_counts, ps_cntt)
                     
                     pt <- rowSums(as.matrix(as_win_cds[, (34 + 3 * i):(36 + 3 * i)]))
                     names(pt) <- coood
-                    pt <- aggregate(pt, list(names(pt)), sum)
-                    ps_cntt <- rep(0, length(gco))
-                    names(ps_cntt) <- gco
-                    ps_cntt[pt[, 1]] <- pt[, 2]
+                    ps_cntt <- codon_sums(pt, gco)
                     asit_counts <- cbind(asit_counts, ps_cntt)
                     
                     pt <- rowSums(as.matrix(es_win_cds[, (34 + 3 * i):(36 + 3 * i)]))
                     names(pt) <- coood
-                    pt <- aggregate(pt, list(names(pt)), sum)
-                    ps_cntt <- rep(0, length(gco))
-                    names(ps_cntt) <- gco
-                    ps_cntt[pt[, 1]] <- pt[, 2]
+                    ps_cntt <- codon_sums(pt, gco)
                     esit_counts <- cbind(esit_counts, ps_cntt)
                   }
                   # end
@@ -2136,26 +2071,17 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
                     cod_counts <- cbind(cod_counts, cod_cntt)
                     pt <- rowSums(as.matrix(ps_win_cds[, (67 + 3 * i):(69 + 3 * i)]))
                     names(pt) <- coood
-                    pt <- aggregate(pt, list(names(pt)), sum)
-                    ps_cntt <- rep(0, length(gco))
-                    names(ps_cntt) <- gco
-                    ps_cntt[pt[, 1]] <- pt[, 2]
+                    ps_cntt <- codon_sums(pt, gco)
                     psit_counts <- cbind(psit_counts, ps_cntt)
                     
                     pt <- rowSums(as.matrix(as_win_cds[, (67 + 3 * i):(69 + 3 * i)]))
                     names(pt) <- coood
-                    pt <- aggregate(pt, list(names(pt)), sum)
-                    ps_cntt <- rep(0, length(gco))
-                    names(ps_cntt) <- gco
-                    ps_cntt[pt[, 1]] <- pt[, 2]
+                    ps_cntt <- codon_sums(pt, gco)
                     asit_counts <- cbind(asit_counts, ps_cntt)
                     
                     pt <- rowSums(as.matrix(es_win_cds[, (67 + 3 * i):(69 + 3 * i)]))
                     names(pt) <- coood
-                    pt <- aggregate(pt, list(names(pt)), sum)
-                    ps_cntt <- rep(0, length(gco))
-                    names(ps_cntt) <- gco
-                    ps_cntt[pt[, 1]] <- pt[, 2]
+                    ps_cntt <- codon_sums(pt, gco)
                     esit_counts <- cbind(esit_counts, ps_cntt)
                     
                   }
