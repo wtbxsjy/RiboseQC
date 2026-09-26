@@ -15,11 +15,14 @@ if (nzchar(Sys.getenv("RIBOSEQC_BAMS"))) bams <- normalizePath(strsplit(Sys.gete
 annot <- file.path(data_dir, "annot", "Homo_sapiens.GRCh38.111_chr20.gtf_Rannot")
 dest <- file.path(out_dir, sub(".bam$", "", basename(bams)))
 if (do_prof) Rprof(file.path(out_dir, "Rprof.out"), interval = 0.02, line.profiling = TRUE)
+# RIBOSEQC_CORES: analyze the BAM files in parallel on this many cores
+n_cores <- as.integer(Sys.getenv("RIBOSEQC_CORES", "1"))
+bpparam <- if (n_cores > 1) BiocParallel::MulticoreParam(n_cores, RNGseed = 1) else NULL
 set.seed(1)  # calc_cutoffs_from_profiles uses kmeans() with random starts
 tm <- system.time(
     RiboseQC_analysis(annotation_file = annot, bam_files = bams, dest_names = dest,
                       create_report = FALSE, write_tmp_files = TRUE,
-                      chunk_size = chunk_size)
+                      chunk_size = chunk_size, BPPARAM = bpparam)
 )
 if (do_prof) Rprof(NULL)
 print(tm)

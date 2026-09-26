@@ -26,6 +26,8 @@ NULL
 #' @param normalize_cov export normalized (sum to 1 million) bedgraph files for coverage tracks? Defaults to \code{TRUE}
 #' @param offsets_df optionally input an offsets_df created externally, note that this does not yet fully integrate with stats such as 'proportion in phase' it will however alter the psites which are outputted. Must have cols 'read_length','cutoff'
 #' @param genome_seq An FaFile object, to be used instead of a BSgenome package
+#' @param BPPARAM optional \code{BiocParallelParam} object (e.g. \code{BiocParallel::MulticoreParam(4)}) used to
+#' analyze several BAM files in parallel. Defaults to \code{NULL}: BAM files are analyzed one after the other.
 #' @return the function saves a 'results_RiboseQC_all' R file appended to the bam_files path including the complete list of outputs described here.
 #' In addition, bedgraph files for coverage value and P_sites position is appended to the bam_files path, including also a summary of P_sites selection statistics,
 #' a smaller 'results_RiboseQC' R file used for creating a dynamic html report, and a 'for_ORFquant' R object that can be used in the ORFquant pipeline.
@@ -76,13 +78,14 @@ NULL
 #' @import GenomicFeatures
 #' @import BiocGenerics
 #' @import GenomicRanges
+#' @importFrom BiocParallel bplapply
 #' @export 
 
 RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, readlength_choice_method = "max_coverage", 
     genome_seq = NULL, stranded = TRUE, normalize_cov = TRUE, chunk_size = 5000000L, 
     write_tmp_files = TRUE, dest_names = NA, rescue_all_rls = FALSE, fast_mode = TRUE, 
     create_report = TRUE, sample_names = NA, report_file = NA, extended_report = FALSE, 
-    pdf_plots = TRUE, offsets_df = NULL) {
+    pdf_plots = TRUE, offsets_df = NULL, BPPARAM = NULL) {
     
     if (length(dest_names) == 1) {
         if (is.na(dest_names)) {
@@ -247,9 +250,8 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
     genome_seq <- list_annotations[[1]]$genome_seq
     
     
-    resfilelist <- c()
-    
-    for (bammo in seq_along(bam_files)) {
+    # analysis of one BAM file; returns the path of its results file
+    process_bam <- function(bammo) {
         
         chunk_size <- as.integer(chunk_size)
         
@@ -2351,7 +2353,13 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
         gici <- gc()
         cat(paste("Exporting files --- Done!", date(), "\n\n"))
         
-        resfilelist <- c(resfilelist,resfile)
+        resfile
+    }
+    
+    if (is.null(BPPARAM)) {
+        resfilelist <- unlist(lapply(seq_along(bam_files), process_bam))
+    } else {
+        resfilelist <- unlist(bplapply(seq_along(bam_files), process_bam, BPPARAM = BPPARAM))
     }
     
       if (create_report) {
