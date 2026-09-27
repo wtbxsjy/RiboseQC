@@ -31,6 +31,10 @@ if (!file.exists(annot)) {
 bams <- file.path(ext, c("simp_arab_root.bam", "simp_arab_shoots.bam"))
 if (nzchar(Sys.getenv("RIBOSEQC_PROF"))) Rprof(Sys.getenv("RIBOSEQC_PROF"), interval = 0.02, line.profiling = TRUE)
 set.seed(1)
-RiboseQC_analysis(annotation_file = annot, bam_files = bams,
-                  dest_names = file.path(out_dir, c("root", "shoots")),
-                  create_report = FALSE, write_tmp_files = TRUE, normalize_cov = FALSE)
+run_args <- list(annotation_file = annot, bam_files = bams,
+                 dest_names = file.path(out_dir, c("root", "shoots")),
+                 create_report = FALSE, write_tmp_files = TRUE, normalize_cov = FALSE)
+# RIBOSEQC_REGION_CORES: analyze each BAM file in parallel over genomic windows
+region_cores <- as.integer(Sys.getenv("RIBOSEQC_REGION_CORES", "1"))
+if (region_cores > 1) run_args$region_BPPARAM <- BiocParallel::MulticoreParam(region_cores)
+do.call(RiboseQC_analysis, run_args)

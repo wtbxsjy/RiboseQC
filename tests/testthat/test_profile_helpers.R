@@ -74,13 +74,6 @@ testthat::test_that("codon_sums matches aggregate()", {
     testthat::expect_identical(codon_sums(pt, gco), orig)
 })
 
-testthat::test_that("count_identical_ranges matches countOverlaps(type = 'equal')", {
-    y <- GRanges(sample(c("1", "2"), 500, TRUE), IRanges(sample(1:50, 500, TRUE), width = 1), strand = sample(c("+",
-        "-"), 500, TRUE))
-    unq <- unique(y)
-    testthat::expect_identical(count_identical_ranges(unq, y), countOverlaps(unq, y, type = "equal"))
-})
-
 testthat::test_that("readlength padding and counting helpers", {
     d <- data.frame(reads_25 = c(1, 2), reads_27 = c(3, 4), row.names = c("nucl", "chrM"))
     p <- pad_readlength_cols(d, 24:28)

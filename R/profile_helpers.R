@@ -140,17 +140,7 @@ count_overlaps_by_readlength <- function(features, reads, readlengths) {
         levels = readlengths))
     counts <- matrix(as.integer(counts), nrow = length(features), dimnames = list(names(features), 
         paste("reads", readlengths, sep = "_")))
-    # the original code filled read lengths absent from the reads with (double) zeros
-    if (!all(readlengths %in% len)) {
-        storage.mode(counts) <- "double"
-    }
     counts
-}
-
-# For each range in 'unq' (unique ranges), the number of ranges in 'y' that are
-# identical to it; same as countOverlaps(unq, y, type = "equal") for stranded ranges.
-count_identical_ranges <- function(unq, y) {
-    tabulate(match(y, unq), nbins = length(unq))
 }
 
 # Contiguous range of read lengths covering the "reads_<length>" columns of two tables
@@ -167,7 +157,9 @@ pad_readlength_cols <- function(d, rls) {
         return(d)
     }
     m <- as.matrix(d)
-    out <- matrix(0, nrow = nrow(m), ncol = length(cols), dimnames = list(rownames(m), cols))
+    # zeros of the same type as the counts (integer read counts stay integer)
+    out <- matrix(if (is.integer(m)) 0L else 0, nrow = nrow(m), ncol = length(cols), dimnames = list(rownames(m), 
+        cols))
     out[, colnames(m)] <- m
     if (is(d, "DataFrame")) {
         return(DataFrame(out, check.names = FALSE))

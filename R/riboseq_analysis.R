@@ -28,6 +28,10 @@ NULL
 #' @param genome_seq An FaFile object, to be used instead of a BSgenome package
 #' @param BPPARAM optional \code{BiocParallelParam} object (e.g. \code{BiocParallel::MulticoreParam(4)}) used to
 #' analyze several BAM files in parallel. Defaults to \code{NULL}: BAM files are analyzed one after the other.
+#' @param region_BPPARAM optional \code{BiocParallelParam} object used to analyze each BAM file in parallel over
+#' genomic windows (the BAM file must be indexed). Results are the same as with sequential processing.
+#' Defaults to \code{NULL}: each BAM file is read sequentially in chunks of \code{chunk_size} alignments.
+#' Use either \code{BPPARAM} or \code{region_BPPARAM}, not both, to avoid running more processes than cores.
 #' @return the function saves a 'results_RiboseQC_all' R file appended to the bam_files path including the complete list of outputs described here.
 #' In addition, bedgraph files for coverage value and P_sites position is appended to the bam_files path, including also a summary of P_sites selection statistics,
 #' a smaller 'results_RiboseQC' R file used for creating a dynamic html report, and a 'for_ORFquant' R object that can be used in the ORFquant pipeline.
@@ -78,14 +82,14 @@ NULL
 #' @import GenomicFeatures
 #' @import BiocGenerics
 #' @import GenomicRanges
-#' @importFrom BiocParallel bplapply
+#' @importFrom BiocParallel bplapply bpnworkers
 #' @export 
 
 RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, readlength_choice_method = "max_coverage", 
     genome_seq = NULL, stranded = TRUE, normalize_cov = TRUE, chunk_size = 5000000L, 
     write_tmp_files = TRUE, dest_names = NA, rescue_all_rls = FALSE, fast_mode = TRUE, 
     create_report = TRUE, sample_names = NA, report_file = NA, extended_report = FALSE, 
-    pdf_plots = TRUE, offsets_df = NULL, BPPARAM = NULL) {
+    pdf_plots = TRUE, offsets_df = NULL, BPPARAM = NULL, region_BPPARAM = NULL) {
     
     if (length(dest_names) == 1) {
         if (is.na(dest_names)) {
@@ -329,62 +333,8 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             x <- pad_readlength_stats(x, readlength_union(x[["rld"]], y[["rld"]]))
             y <- pad_readlength_stats(y, readlength_union(x[["rld"]], y[["rld"]]))
             
-            all_ps <- GRangesList()
-            rls <- unique(c(names(x[["reads_pos1"]]), names(y[["reads_pos1"]])))
-            seql <- seqlevels(GTF_annotation$seqinfo)
-            seqle <- seqlengths(GTF_annotation$seqinfo)
-            for (rl in rls) {
-                reads_x <- GRanges()
-                reads_y <- GRanges()
-                
-                if (sum(rl %in% names(x[["reads_pos1"]])) > 0) {
-                  reads_x <- x[["reads_pos1"]][[rl]]
-                }
-                if (sum(rl %in% names(y[["reads_pos1"]])) > 0) {
-                  reads_y <- y[["reads_pos1"]][[rl]]
-                }
-
-                #This needs to go after the above                
-                seqlevels(reads_x) <- seql
-                seqlevels(reads_y) <- seql
-                
-                seqlengths(reads_x) <- seqle
-                seqlengths(reads_y) <- seqle
-                
-                
-#                reads_y <- 
-                plx <- reads_x[strand(reads_x) == "+"]
-                mnx <- reads_x[strand(reads_x) == "-"]
-                ply <- reads_y[strand(reads_y) == "+"]
-                mny <- reads_y[strand(reads_y) == "-"]
-                if (length(plx) > 0) {
-                  covv_pl <- coverage(plx, weight = plx$score)
-                } else {
-                  covv_pl <- coverage(plx)
-                }
-                if (length(ply) > 0) {
-                  covv_pl <- covv_pl + coverage(ply, weight = ply$score)
-                }
-                covv_pl <- GRanges(covv_pl)
-                covv_pl <- covv_pl[covv_pl$score > 0]
-                
-                if (length(mnx) > 0) {
-                  covv_min <- coverage(mnx, weight = mnx$score)
-                } else {
-                  covv_min <- coverage(mnx)
-                }
-                if (length(mny) > 0) {
-                  covv_min <- covv_min + coverage(mny, weight = mny$score)
-                }
-                
-                covv_min <- GRanges(covv_min)
-                covv_min <- covv_min[covv_min$score > 0]
-                
-                strand(covv_pl) <- "+"
-                strand(covv_min) <- "-"
-                
-                all_ps[[rl]] <- sort(c(covv_pl, covv_min))
-            }
+            # 5' end positions: sum the counts of identical positions
+            all_ps <- merge_position_tables(x[["reads_pos1"]], y[["reads_pos1"]])
             
             
             cntsss <- y[["counts_cds_genes"]]
@@ -418,10 +368,6 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             lis
         }
         
-        # what to do with each chunk (read as alignment file)
-        yiel <- function(x) {
-            readGAlignments(x, param = param)
-        }
         
         # operations on the chunk (here count reads and whatnot)
         mapp <- function(x) {
@@ -573,17 +519,8 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             
             
             # take first position of each read
-            reads_pos1 <- resize(GRanges(x), 1)
-            names(reads_pos1) <- as.character(mcols(x)$len_adj)
-            reads_pos1 <- split(reads_pos1, reads_pos1$len_adj)
-            
-            reads_pos1 <- GRangesList(lapply(reads_pos1, function(y) {
-                unq <- unique(y)
-                mcols(unq) <- NULL
-                unq$score <- count_identical_ranges(unq, y)
-                unq
-                
-            }))
+            # (position table, converted to a GRangesList after the whole file is read)
+            reads_pos1 <- read_5p_positions(x)
             
             # cnts_cds_genes, cnts_all_genes
             
@@ -650,10 +587,18 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
         
         cat(paste("Analyzing BAM file:", bam_file, "...", date(), "\n"))
         
-        read_stats <- reduceByYield(X = opts, YIELD = yiel, MAP = mapp, REDUCE = reduc)
+        # genomic windows for region-parallel processing, shared by both passes over the BAM file
+        bam_wins <- NULL
+        if (!is.null(region_BPPARAM)) {
+            bam_wins <- bam_windows(bam_file, region_target_reads(bam_file, chunk_size, bpnworkers(region_BPPARAM)), 
+                bamFlag(param, asInteger = TRUE))
+        }
+        read_stats <- run_bam_pass(bam_file, chunk_size, param, MAP = mapp, REDUCE = reduc, 
+            BPPARAM = region_BPPARAM, windows = bam_wins)
         names(read_stats) <- c("rld", "rld_unq", "positions", "positions_unq", "reads_pos1", 
             "counts_cds_genes", "counts_cds_genes_unq", "counts_all_genes", "counts_all_genes_unq", 
             "reads_summary", "reads_summary_unq")
+        read_stats$reads_pos1 <- position_table_to_grl(read_stats$reads_pos1, seqlevels(seqs), seqlengths(seqs))
         
         cds_cnts <- read_stats$counts_cds_genes
         cds_cnts$RPKM <- cds_cnts$reads/(sum(cds_cnts$reads)/1e+06)
@@ -1026,178 +971,17 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
         # what to do with chunks: x present chunk, y old chunks (cumulative)
         reduc <- function(x, y) {
             # adjust merging by rls
-            all_ps <- GRangesList()
-            rls <- unique(c(names(x[["P_sites_all"]]), names(y[["P_sites_all"]])))
+            all_ps <- merge_position_tables(x[["P_sites_all"]], y[["P_sites_all"]])
             
-            for (rl in rls) {
-                reads_x <- GRanges()
-                reads_y <- GRanges()
-                
-                seqlevels(reads_x) <- seqllll
-                seqlevels(reads_y) <- seqllll
-                
-                seqlengths(reads_x) <- seqleee
-                seqlengths(reads_y) <- seqleee
-                
-                if (sum(rl %in% names(x[["P_sites_all"]])) > 0) {
-                  reads_x <- x[["P_sites_all"]][[rl]]
-                }
-                if (sum(rl %in% names(y[["P_sites_all"]])) > 0) {
-                  reads_y <- y[["P_sites_all"]][[rl]]
-                }
-                
-                plx <- reads_x[strand(reads_x) == "+"]
-                mnx <- reads_x[strand(reads_x) == "-"]
-                ply <- reads_y[strand(reads_y) == "+"]
-                mny <- reads_y[strand(reads_y) == "-"]
-                if (length(plx) > 0) {
-                  covv_pl <- coverage(plx, weight = plx$score)
-                } else {
-                  covv_pl <- coverage(plx)
-                }
-                if (length(ply) > 0) {
-                  covv_pl <- covv_pl + coverage(ply, weight = ply$score)
-                }
-                
-                covv_pl <- GRanges(covv_pl)
-                covv_pl <- covv_pl[covv_pl$score > 0]
-                
-                if (length(mnx) > 0) {
-                  covv_min <- coverage(mnx, weight = mnx$score)
-                } else {
-                  covv_min <- coverage(mnx)
-                }
-                if (length(mny) > 0) {
-                  covv_min <- covv_min + coverage(mny, weight = mny$score)
-                }
-                
-                covv_min <- GRanges(covv_min)
-                covv_min <- covv_min[covv_min$score > 0]
-                
-                strand(covv_pl) <- "+"
-                strand(covv_min) <- "-"
-                
-                all_ps[[rl]] <- sort(c(covv_pl, covv_min))
-                rm(covv_min, covv_pl, plx, mnx, ply, mny, reads_y, reads_x, rl)
-                
-            }
+            uniq_ps <- merge_position_tables(x[["P_sites_uniq"]], y[["P_sites_uniq"]])
             
-            uniq_ps <- GRangesList()
-            rls <- unique(c(names(x[["P_sites_uniq"]]), names(y[["P_sites_uniq"]])))
-            
-            for (rl in rls) {
-                reads_x <- GRanges()
-                reads_y <- GRanges()
-                
-                seqlevels(reads_x) <- seqllll
-                seqlevels(reads_y) <- seqllll
-                
-                seqlengths(reads_x) <- seqleee
-                seqlengths(reads_y) <- seqleee
-                if (sum(rl %in% names(x[["P_sites_uniq"]])) > 0) {
-                  reads_x <- x[["P_sites_uniq"]][[rl]]
-                }
-                if (sum(rl %in% names(y[["P_sites_uniq"]])) > 0) {
-                  reads_y <- y[["P_sites_uniq"]][[rl]]
-                }
-                
-                plx <- reads_x[strand(reads_x) == "+"]
-                mnx <- reads_x[strand(reads_x) == "-"]
-                ply <- reads_y[strand(reads_y) == "+"]
-                mny <- reads_y[strand(reads_y) == "-"]
-                if (length(plx) > 0) {
-                  covv_pl <- coverage(plx, weight = plx$score)
-                } else {
-                  covv_pl <- coverage(plx)
-                }
-                if (length(ply) > 0) {
-                  covv_pl <- covv_pl + coverage(ply, weight = ply$score)
-                }
-                
-                covv_pl <- GRanges(covv_pl)
-                covv_pl <- covv_pl[covv_pl$score > 0]
-                
-                if (length(mnx) > 0) {
-                  covv_min <- coverage(mnx, weight = mnx$score)
-                } else {
-                  covv_min <- coverage(mnx)
-                }
-                if (length(mny) > 0) {
-                  covv_min <- covv_min + coverage(mny, weight = mny$score)
-                }
-                
-                covv_min <- GRanges(covv_min)
-                covv_min <- covv_min[covv_min$score > 0]
-                
-                strand(covv_pl) <- "+"
-                strand(covv_min) <- "-"
-                
-                uniq_ps[[rl]] <- sort(c(covv_pl, covv_min))
-                rm(covv_min, covv_pl, plx, mnx, ply, mny, reads_y, reads_x, rl)
-                
-                
-            }
-            
-            uniq_mm_ps <- GRangesList()
-            rls <- unique(c(names(x[["P_sites_uniq_mm"]]), names(y[["P_sites_uniq_mm"]])))
-            
-            for (rl in rls) {
-                reads_x <- GRanges()
-                reads_y <- GRanges()
-                
-                seqlevels(reads_x) <- seqllll
-                seqlevels(reads_y) <- seqllll
-                
-                seqlengths(reads_x) <- seqleee
-                seqlengths(reads_y) <- seqleee
-                if (sum(rl %in% names(x[["P_sites_uniq_mm"]])) > 0) {
-                  reads_x <- x[["P_sites_uniq_mm"]][[rl]]
-                }
-                if (sum(rl %in% names(y[["P_sites_uniq_mm"]])) > 0) {
-                  reads_y <- y[["P_sites_uniq_mm"]][[rl]]
-                }
-                
-                plx <- reads_x[strand(reads_x) == "+"]
-                mnx <- reads_x[strand(reads_x) == "-"]
-                ply <- reads_y[strand(reads_y) == "+"]
-                mny <- reads_y[strand(reads_y) == "-"]
-                if (length(plx) > 0) {
-                  covv_pl <- coverage(plx, weight = plx$score)
-                } else {
-                  covv_pl <- coverage(plx)
-                }
-                if (length(ply) > 0) {
-                  covv_pl <- covv_pl + coverage(ply, weight = ply$score)
-                }
-                
-                covv_pl <- GRanges(covv_pl)
-                covv_pl <- covv_pl[covv_pl$score > 0]
-                
-                if (length(mnx) > 0) {
-                  covv_min <- coverage(mnx, weight = mnx$score)
-                } else {
-                  covv_min <- coverage(mnx)
-                }
-                if (length(mny) > 0) {
-                  covv_min <- covv_min + coverage(mny, weight = mny$score)
-                }
-                
-                covv_min <- GRanges(covv_min)
-                covv_min <- covv_min[covv_min$score > 0]
-                
-                strand(covv_pl) <- "+"
-                strand(covv_min) <- "-"
-                
-                uniq_mm_ps[[rl]] <- sort(c(covv_pl, covv_min))
-                rm(covv_min, covv_pl, plx, mnx, ply, mny, reads_y, reads_x, rl)
-                
-            }
+            uniq_mm_ps <- merge_position_tables(x[["P_sites_uniq_mm"]], y[["P_sites_uniq_mm"]])
             
             covall_plus <- x$coverage_all_plus + y$coverage_all_plus
-            covall_min <- x$coverage_all_min + y$coverage_all_min
+            covall_min <- x$coverage_all_minus + y$coverage_all_minus
             
             covuni_plus <- x$coverage_uniq_plus + y$coverage_uniq_plus
-            covuni_min <- x$coverage_uniq_min + y$coverage_uniq_min
+            covuni_min <- x$coverage_uniq_minus + y$coverage_uniq_minus
             
             
             rang_jun <- x$junctions
@@ -1207,18 +991,13 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             list_res <- list(all_ps, uniq_ps, uniq_mm_ps, rang_jun, covall_plus, 
                 covall_min, covuni_plus, covuni_min)
             names(list_res) <- c("P_sites_all", "P_sites_uniq", "P_sites_uniq_mm", 
-                "junctions", "coverage_all_plus", "coverage_all_min", "coverage_uniq_plus", 
-                "coverage_uniq_min")
+                "junctions", "coverage_all_plus", "coverage_all_minus", "coverage_uniq_plus", 
+                "coverage_uniq_minus")
             
             
             return(list_res)
         }
         
-        # what to do with each chunk (read as alignment file)
-        
-        yiel <- function(x) {
-            readGAlignments(x, param = param)
-        }
         
         # operations on the chunk (here count reads and whatnot)
         
@@ -1317,284 +1096,12 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             
             
             
-            # P-sites calculation
+            # P-sites calculation (all read lengths and compartments at once)
             
-            
-            list_pss <- list()
-            for (comp in names(rl_cutoffs_comp)) {
-                all_rl_ps <- GRangesList()
-                uniq_rl_ps <- GRangesList()
-                uniq_rl_mm_ps <- GRangesList()
-                
-                seqlevels(all_rl_ps) <- seqllll
-                seqlevels(uniq_rl_ps) <- seqllll
-                seqlevels(uniq_rl_mm_ps) <- seqllll
-                
-                seqlengths(all_rl_ps) <- seqleee
-                seqlengths(uniq_rl_ps) <- seqleee
-                seqlengths(uniq_rl_mm_ps) <- seqleee
-                
-                
-                chroms <- comp
-                
-                if (comp == "nucl") {
-                  chroms = seqlevels(x)[!seqlevels(x) %in% circs]
-                }
-                resul <- rl_cutoffs_comp[[comp]]
-                
-                for (i in seq_along(resul$read_length)) {
-                  
-                  all_ps <- GRangesList()
-                  uniq_ps <- GRangesList()
-                  uniq_mm_ps <- GRangesList()
-                  seqlevels(all_ps) <- seqllll
-                  seqlevels(uniq_ps) <- seqllll
-                  seqlevels(uniq_mm_ps) <- seqllll
-                  
-                  seqlengths(all_ps) <- seqleee
-                  seqlengths(uniq_ps) <- seqleee
-                  seqlengths(uniq_mm_ps) <- seqleee
-                  
-                  rl <- as.numeric(resul$read_length[i])
-                  ct <- as.numeric(resul$cutoff[i])
-                  ok_reads <- pos[mcols(pos)$len_adj %in% rl]
-                  ok_reads <- ok_reads[as.vector(seqnames(ok_reads)) %in% chroms]
-                  
-                  ps_plus <- GRanges()
-                  seqlevels(ps_plus) <- seqllll
-                  seqlengths(ps_plus) <- seqleee
-                  ps_plus_uniq <- ps_plus
-                  ps_plus_uniq_mm <- ps_plus
-                  
-                  if (length(ok_reads) > 0) {
-                    unspl <- ok_reads[grep(pattern = "N", x = cigar(ok_reads), invert = TRUE)]
-                    
-                    ps_unspl <- shift(resize(GRanges(unspl), width = 1, fix = "start"), 
-                      shift = ct)
-                    
-                    spl <- ok_reads[grep(pattern = "N", x = cigar(ok_reads))]
-                    firstb <- as.numeric(sapply(strsplit(cigar(spl), "M"), "[[", 
-                      1))
-                    lastb <- as.numeric(sapply(strsplit(cigar(spl), "M"), function(x) {
-                      gsub(x[length(x)], pattern = "^[^_]*N", replacement = "")
-                    }))
-                    firstok <- spl[firstb > ct]
-                    firstok <- shift(resize(GRanges(firstok), width = 1, fix = "start"), 
-                      shift = ct)
-                    
-                    lastok <- spl[lastb >= rl - ct]
-                    lastok <- shift(resize(GRanges(lastok), width = 1, fix = "end"), 
-                      shift = -(rl - ct - 1))
-                    
-                    
-                    multi <- spl[firstb <= ct & lastb < rl - ct]
-                    
-                    
-                    ps_spl <- GRanges()
-                    seqlevels(ps_spl) <- seqllll
-                    seqlengths(ps_spl) <- seqleee
-                    
-                    if (length(multi) > 0) {
-                      ps_spl <- get_ps_fromspliceplus(multi, cutoff = ct)
-                      
-                    }
-                    mcols(ps_spl) <- mcols(multi)
-                    
-                    seqlevels(firstok) <- seqllll
-                    seqlevels(lastok) <- seqllll
-                    seqlevels(ps_unspl) <- seqllll
-                    seqlevels(ps_spl) <- seqllll
-                    
-                    seqlengths(firstok) <- seqleee
-                    seqlengths(lastok) <- seqleee
-                    seqlengths(ps_unspl) <- seqleee
-                    seqlengths(ps_spl) <- seqleee
-                    
-                    ps_plus <- c(ps_unspl, firstok, lastok, ps_spl)
-                    
-                    ps_plus_uniq <- ps_plus[mcols(ps_plus)$mapq > 50]
-                    
-                    mapqokay <- mcols(ok_reads)$mapq > 50 & grepl(x = mcols(ok_reads)$MD, 
-                      pattern = "\\W|.{3,}")
-                    length(mapqokay)
-                    ps_plus_uniq_mm <- ps_plus[mapqokay]
-                    
-                    mcols(ps_plus) <- NULL
-                    mcols(ps_plus_uniq) <- NULL
-                    mcols(ps_plus_uniq_mm) <- NULL
-                    
-                  }
-                  ok_reads <- neg[mcols(neg)$len_adj %in% rl]
-                  ok_reads <- ok_reads[as.vector(seqnames(ok_reads)) %in% chroms]
-                  
-                  ps_neg <- GRanges()
-                  seqlevels(ps_neg) <- seqllll
-                  seqlengths(ps_neg) <- seqleee
-                  ps_neg_uniq <- ps_neg
-                  ps_neg_uniq_mm <- ps_neg
-                  
-                  if (length(ok_reads) > 0) {
-                    unspl <- ok_reads[grep(pattern = "N", x = cigar(ok_reads), invert = TRUE)]
-                    
-                    ps_unspl <- shift(resize(GRanges(unspl), width = 1, fix = "start"), 
-                      shift = -ct)
-                    
-                    spl <- ok_reads[grep(pattern = "N", x = cigar(ok_reads))]
-                    
-                    firstb <- as.numeric(sapply(strsplit(cigar(spl), "M"), "[[", 
-                      1))
-                    lastb <- as.numeric(sapply(strsplit(cigar(spl), "M"), function(x) {
-                      gsub(x[length(x)], pattern = "^[^_]*N", replacement = "")
-                    }))
-                    lastok <- spl[lastb > ct]
-                    lastok <- shift(resize(GRanges(lastok), width = 1, fix = "start"), 
-                      shift = -ct)
-                    
-                    firstok <- spl[firstb >= rl - ct]
-                    firstok <- shift(resize(GRanges(firstok), width = 1, fix = "end"), 
-                      shift = (rl - ct - 1))
-                    
-                    multi <- spl[firstb < rl - ct & lastb <= ct]
-                    
-                    
-                    ps_spl <- GRanges()
-                    seqlevels(ps_spl) <- seqllll
-                    seqlengths(ps_spl) <- seqleee
-                    
-                    
-                    if (length(multi) > 0) {
-                      ps_spl <- get_ps_fromsplicemin(multi, cutoff = ct)
-                    }
-                    mcols(ps_spl) <- mcols(multi)
-                    
-                    seqlevels(firstok) <- seqllll
-                    seqlevels(lastok) <- seqllll
-                    seqlevels(ps_unspl) <- seqllll
-                    seqlevels(ps_spl) <- seqllll
-                    
-                    seqlengths(firstok) <- seqleee
-                    seqlengths(lastok) <- seqleee
-                    seqlengths(ps_unspl) <- seqleee
-                    seqlengths(ps_spl) <- seqleee
-                    
-                    ps_neg <- c(ps_unspl, firstok, lastok, ps_spl)
-                    # HERE PROBLEM WITH MAPPING QUALITY
-                    ps_neg_uniq <- ps_neg[mcols(ps_neg)$mapq > 50]
-                    mapqokay <- mcols(ok_reads)$mapq > 50 & grepl(x = mcols(ok_reads)$MD, 
-                      pattern = "\\W|.{3,}")
-                    length(mapqokay)
-                    
-                    ps_neg_uniq_mm <- ok_reads[mapqokay]
-                    
-                    mcols(ps_neg) <- NULL
-                    mcols(ps_neg_uniq) <- NULL
-                    mcols(ps_neg_uniq_mm) <- NULL
-                    
-                  }
-                  
-                  all_ps <- sort(c(ps_plus, ps_neg))
-                  uniq_ps <- sort(c(ps_plus_uniq, ps_neg_uniq))
-                  uniq_mm_ps <- sort(c(ps_plus_uniq_mm, ps_neg_uniq_mm))
-                  if (length(all_ps) > 0) {
-                    ps_res <- unique(all_ps)
-                    ps_res$score <- count_identical_ranges(ps_res, all_ps)
-                    all_ps <- ps_res
-                  }
-                  if (length(uniq_ps) > 0) {
-                    ps_res <- unique(uniq_ps)
-                    ps_res$score <- count_identical_ranges(ps_res, uniq_ps)
-                    uniq_ps <- ps_res
-                    
-                  }
-                  if (length(uniq_mm_ps) > 0) {
-                    ps_res <- unique(uniq_mm_ps)
-                    ps_res$score <- count_identical_ranges(ps_res, uniq_mm_ps)
-                    uniq_mm_ps <- ps_res
-                    
-                  }
-                  all_rl_ps[[as.character(rl)]] <- all_ps
-                  uniq_rl_ps[[as.character(rl)]] <- uniq_ps
-                  uniq_rl_mm_ps[[as.character(rl)]] <- uniq_mm_ps
-                  
-                  
-                }
-                # here comps
-                list_rlct <- list(all_rl_ps, uniq_rl_ps, uniq_rl_mm_ps)
-                names(list_rlct) <- c("P_sites_all", "P_sites_uniq", "P_sites_uniq_mm")
-                list_pss[[comp]] <- list_rlct
-            }
-            # for rl, merge psites
-            
-            
-            all_ps_comps <- GRangesList()
-            seqlevels(all_ps_comps) <- seqllll
-            seqlengths(all_ps_comps) <- seqleee
-            rls_comps <- unique(unlist(lapply(list_pss, FUN = function(x) names(x[["P_sites_all"]]))))
-            for (rl in rls_comps) {
-                reads_rl_comp <- GRanges()
-                seqlevels(reads_rl_comp) <- seqllll
-                seqlengths(reads_rl_comp) <- seqleee
-                for (comp in names(list_pss)) {
-                  if (sum(rl %in% names(list_pss[[comp]][["P_sites_all"]])) > 0) {
-                    oth <- list_pss[[comp]][["P_sites_all"]][[rl]]
-                    
-                    if (!is.null(oth)) {
-                      seqlevels(oth) <- seqllll
-                      seqlengths(oth) <- seqleee
-                      reads_rl_comp <- c(reads_rl_comp, oth)
-                    }
-                  }
-                  all_ps_comps[[rl]] <- reads_rl_comp
-                }
-                
-            }
-            
-            uniq_ps_comps <- GRangesList()
-            seqlevels(uniq_ps_comps) <- seqllll
-            seqlengths(uniq_ps_comps) <- seqleee
-            rls_comps <- unique(unlist(lapply(list_pss, FUN = function(x) names(x[["P_sites_uniq"]]))))
-            for (rl in rls_comps) {
-                reads_rl_comp <- GRanges()
-                seqlevels(reads_rl_comp) <- seqllll
-                seqlengths(reads_rl_comp) <- seqleee
-                for (comp in names(list_pss)) {
-                  if (sum(rl %in% names(list_pss[[comp]][["P_sites_uniq"]])) > 0) {
-                    oth <- list_pss[[comp]][["P_sites_uniq"]][[rl]]
-                    
-                    if (!is.null(oth)) {
-                      seqlevels(oth) <- seqllll
-                      seqlengths(oth) <- seqleee
-                      reads_rl_comp <- c(reads_rl_comp, oth)
-                    }
-                  }
-                  uniq_ps_comps[[rl]] <- reads_rl_comp
-                }
-                
-            }
-            
-            uniq_mm_ps_comps <- GRangesList()
-            seqlevels(uniq_mm_ps_comps) <- seqllll
-            seqlengths(uniq_mm_ps_comps) <- seqleee
-            rls_comps <- unique(unlist(lapply(list_pss, FUN = function(x) names(x[["P_sites_uniq_mm"]]))))
-            for (rl in rls_comps) {
-                reads_rl_comp <- GRanges()
-                seqlevels(reads_rl_comp) <- seqllll
-                seqlengths(reads_rl_comp) <- seqleee
-                for (comp in names(list_pss)) {
-                  if (sum(rl %in% names(list_pss[[comp]][["P_sites_uniq_mm"]])) > 
-                    0) {
-                    oth <- list_pss[[comp]][["P_sites_uniq_mm"]][[rl]]
-                    if (!is.null(oth)) {
-                      seqlevels(oth) <- seqllll
-                      seqlengths(oth) <- seqleee
-                      reads_rl_comp <- c(reads_rl_comp, oth)
-                    }
-                  }
-                  uniq_mm_ps_comps[[rl]] <- reads_rl_comp
-                }
-                
-            }
-            
+            pss <- compute_psites(x, rl_cutoffs_comp, circs, seqllll)
+            all_ps_comps <- pss$P_sites_all
+            uniq_ps_comps <- pss$P_sites_uniq
+            uniq_mm_ps_comps <- pss$P_sites_uniq_mm
             
             list_res <- list(all_ps_comps, uniq_ps_comps, uniq_mm_ps_comps, rang_jun, 
                 covall_plus, covall_min, covuni_plus, covuni_min)
@@ -1608,7 +1115,11 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
         }
         cat(paste("Calculating P-sites positions and junctions ...", date(), "\n"))
         
-        P_sites_stats <- reduceByYield(X = opts, YIELD = yiel, MAP = mapp, REDUCE = reduc)
+        P_sites_stats <- run_bam_pass(bam_file, chunk_size, param, MAP = mapp, REDUCE = reduc, 
+            BPPARAM = region_BPPARAM, windows = bam_wins)
+        for (pst in c("P_sites_all", "P_sites_uniq", "P_sites_uniq_mm")) {
+            P_sites_stats[[pst]] <- position_table_to_grl(P_sites_stats[[pst]], seqllll, seqleee)
+        }
         
         save(P_sites_stats, file = paste(dira, "P_sites_stats", sep = "/"))
         
@@ -2155,11 +1666,11 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
         if (!normalize_cov[bammo]) {
             export(P_sites_stats$coverage_all_plus, con = paste(dest_name, "_coverage_plus.bedgraph", 
                 sep = ""))
-            export(P_sites_stats$coverage_all_min, con = paste(dest_name, "_coverage_minus.bedgraph", 
+            export(P_sites_stats$coverage_all_minus, con = paste(dest_name, "_coverage_minus.bedgraph", 
                 sep = ""))
             export(P_sites_stats$coverage_uniq_plus, con = paste(dest_name, "_coverage_uniq_plus.bedgraph", 
                 sep = ""))
-            export(P_sites_stats$coverage_uniq_min, con = paste(dest_name, "_coverage_uniq_minus.bedgraph", 
+            export(P_sites_stats$coverage_uniq_minus, con = paste(dest_name, "_coverage_uniq_minus.bedgraph", 
                 sep = ""))
         }
         
@@ -2167,7 +1678,7 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
         
         if (normalize_cov[bammo]) {
             bwpl <- P_sites_stats$coverage_all_plus
-            bwmn <- P_sites_stats$coverage_all_min
+            bwmn <- P_sites_stats$coverage_all_minus
             
             correction <- (sum(as.numeric(unlist(runValue(bwpl)) * unlist(runLength(bwpl)))) + 
                 sum(as.numeric(unlist(runValue(bwmn)) * unlist(runLength(bwmn)))))/1e+06
@@ -2183,7 +1694,7 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             
             
             bwpl <- P_sites_stats$coverage_uniq_plus
-            bwmn <- P_sites_stats$coverage_uniq_min
+            bwmn <- P_sites_stats$coverage_uniq_minus
             
             correction <- (sum(as.numeric(unlist(runValue(bwpl)) * unlist(runLength(bwpl)))) + 
                 sum(as.numeric(unlist(runValue(bwmn)) * unlist(runLength(bwmn)))))/1e+06
@@ -2214,7 +1725,12 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
         
         
         rds_st <- read_stats$reads_pos1
-        rds_st <- sort(unlist(rds_st))
+        # read length of each position from the list element it belongs to (the
+        # names of unlist() also include the names of the positions, if any)
+        rds_len <- rep(as.numeric(names(rds_st)), elementNROWS(rds_st))
+        rds_st <- unlist(rds_st, use.names = FALSE)
+        rds_st$len_adj <- rds_len
+        rds_st <- sort(rds_st)
         
         regions <- list(reduce(unlist(GTF_annotation$cds_genes)), GTF_annotation$fiveutrs, 
             GTF_annotation$threeutrs, GTF_annotation$ncIsof, GTF_annotation$ncRNAs, 
@@ -2228,8 +1744,6 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
         }))
         
         rds_st <- rds_st[seqnames(rds_st) %in% unique(seqlevels(regions))]
-        rds_st$len_adj <- as.numeric(names(rds_st))
-        names(rds_st) <- NULL
         
         rds_st <- rds_st[order(rds_st$score, decreasing = TRUE)]
         rds_st$pct <- round(rds_st$score/(sum(rds_st$score)/100), digits = 4)

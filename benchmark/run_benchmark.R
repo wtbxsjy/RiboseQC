@@ -22,6 +22,9 @@ set.seed(1)  # calc_cutoffs_from_profiles uses kmeans() with random starts
 run_args <- list(annotation_file = annot, bam_files = bams, dest_names = dest,
                  create_report = FALSE, write_tmp_files = TRUE, chunk_size = chunk_size)
 if (!is.null(bpparam)) run_args$BPPARAM <- bpparam  # (older versions have no BPPARAM)
+# RIBOSEQC_REGION_CORES: analyze each BAM file in parallel over genomic windows
+region_cores <- as.integer(Sys.getenv("RIBOSEQC_REGION_CORES", "1"))
+if (region_cores > 1) run_args$region_BPPARAM <- BiocParallel::MulticoreParam(region_cores)
 tm <- system.time(do.call(RiboseQC_analysis, run_args))
 if (do_prof) Rprof(NULL)
 print(tm)

@@ -22,5 +22,6 @@ Collate:
     'FaFile_Circ.R'
     'riboseqc.R'
     'profile_helpers.R'
+    'parallel_bam.R'
     'riboseq_analysis.R'
 
