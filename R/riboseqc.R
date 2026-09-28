@@ -730,6 +730,7 @@ plot_read_biotype_dist_by_length <- function(reads_summary, sample, output_rds_p
 #' for later use during plotting.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_metagene_data <- function(data, profile_type, res, comp){
 
@@ -929,6 +930,7 @@ plot_metagene_hm_rmd <- function(data, profile_type, sample="", output_rds_path=
 #' @return This function returns a plot that can be integrated in the html report and  #' that can be saved as RDS object file.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 plot_metagene_hm <- function(metagene_data, scal, sample="", output_rds_path="") {
 
@@ -1118,6 +1120,7 @@ plot_metagene_bar_rmd <- function(metagene_data, sample="", output_rds_path="") 
 #' @return This function returns a plot that can be integrated in the html report and that can be saved as RDS object file.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 plot_metagene_bar <- function(metagene_data, rl, sample="", output_rds_path="") {
 
@@ -1276,6 +1279,7 @@ plot_frame_dist_boxplot_rmd <- function(analysis_frame_cutoff, sample="", output
 #' that can be saved as RDS object file.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 
 plot_frame_dist_boxplot <- function(analysis_frame_cutoff, comp, sample="", output_rds_path="") {
@@ -1345,6 +1349,7 @@ plot_frame_dist_boxplot <- function(analysis_frame_cutoff, comp, sample="", outp
 #' @return This function returns data.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_rl_and_cutoffs <- function(rdata_list) {
     datasets <- NULL
@@ -1381,6 +1386,7 @@ get_rl_and_cutoffs <- function(rdata_list) {
 #' @return This function returns data.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_default_rl_selection <- function(rdata_list){
     datasets <- NULL
@@ -1417,6 +1423,7 @@ get_default_rl_selection <- function(rdata_list){
 #' @return This function returns data to be displayed as table in the html report.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_top50_mapping <- function(rdata_list) {
     datasets <- list()
@@ -1445,6 +1452,7 @@ get_top50_mapping <- function(rdata_list) {
 #' @return This function returns data to be displayed as table in the html report.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_top50_cds_genes <- function(rdata_list) {
     datasets <- list()
@@ -1470,6 +1478,7 @@ get_top50_cds_genes <- function(rdata_list) {
 #' @return This function returns data to be displayed as table in the html report.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_top50_all_genes <- function(rdata_list) {
     datasets <- list()
@@ -1537,6 +1546,7 @@ get_top50_all_genes <- function(rdata_list) {
 #' }
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_codon_usage_data <- function(data, data_type, comp, rl) {
 
@@ -2198,6 +2208,7 @@ choose_readlengths<-function(summary_data,choice="max_coverage",nt_signals){
 #' @param x a \code{GAlignments} object with a cigar string
 #' @param cutoff number representing the offset value
 #' @return a \code{GRanges} object with offset reads
+#' @export
 
 get_ps_fromspliceplus<-function(x,cutoff){
     rang<-cigarRangesAlongReferenceSpace(cigar(x), pos=start(x),ops="M")
@@ -2239,6 +2250,7 @@ get_ps_fromspliceplus<-function(x,cutoff){
 #' @param x a \code{GAlignments} object with a cigar string
 #' @param cutoff number representing the offset value
 #' @return a \code{GRanges} object with offset reads
+#' @export
 
 get_ps_fromsplicemin<-function(x,cutoff){
     rang<-cigarRangesAlongReferenceSpace(cigar(x), pos=start(x),ops="M")
@@ -2456,6 +2468,8 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max){
 #' @param export_bed_tables_TxDb Export coordinates and info about different genomic regions in the annotation_directory? It defaults to \code{TRUE}
 #' @param forge_BSgenome Forge and install a \code{BSgenome} package? It defaults to \code{TRUE}
 #' @param create_TxDb Create a \code{TxDb} object and a *Rannot object? It defaults to \code{TRUE}
+#' @param genome_seq Full path to the genome in FASTA format, used when \code{forge_BSgenome} is \code{FALSE}
+#' @param circ_chroms Names of the sequences to treat as circular (organelle) chromosomes
 #' @param annot_file specify an exact file name for the rds file created by this function, defaults to annotation_directory/basename(gtf)_Rannot
 #' @details This function uses the \code{makeTxDbFromGFF} function to  create a TxDb object and extract
 #' genomic regions and other info to a *Rannot R file; the \code{mapToTranscripts} and \code{mapFromTranscripts} functions are used to

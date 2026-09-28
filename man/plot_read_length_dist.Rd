@@ -23,7 +23,11 @@ that can be saved as RDS object file.
 \description{
 This function plots the read length distribution per originating compartment
 for one input sample. \cr \cr
-This plot is used in the Ribo-seQC report in section 2.
+This plot is used in the RiboseQC report in section 2.
+}
+\examples{
+data(res_all)
+plot_read_length_dist(res_all$read_stats$rld, 'shoot', paste0('myfigpath', "rds/"))
 }
 \seealso{
 \code{\link{create_html_report}}
@@ -31,4 +35,4 @@ This plot is used in the Ribo-seQC report in section 2.
 \author{
 Dominique Sydow, \email{dominique.sydow@posteo.de}
 }
-\keyword{Ribo-seQC}
+\keyword{RiboseQC}

@@ -4,11 +4,19 @@
 \alias{prepare_annotation_files}
 \title{Prepare comprehensive sets of annotated genomic features}
 \usage{
-prepare_annotation_files(annotation_directory, twobit_file, gtf_file,
-  scientific_name = "Homo.sapiens", annotation_name = "genc25",
-  export_bed_tables_TxDb = TRUE, forge_BSgenome = TRUE,
-  genome_seq = NULL, circ_chroms = DEFAULT_CIRC_SEQS,
-  create_TxDb = TRUE)
+prepare_annotation_files(
+  annotation_directory,
+  twobit_file = NULL,
+  gtf_file,
+  scientific_name = "Homo.sapiens",
+  annotation_name = "genc25",
+  export_bed_tables_TxDb = TRUE,
+  forge_BSgenome = FALSE,
+  genome_seq = NULL,
+  circ_chroms = DEFAULT_CIRC_SEQS,
+  create_TxDb = TRUE,
+  annot_file = NULL
+)
 }
 \arguments{
 \item{annotation_directory}{The target directory which will contain the output files}
@@ -25,22 +33,29 @@ prepare_annotation_files(annotation_directory, twobit_file, gtf_file,
 
 \item{forge_BSgenome}{Forge and install a \code{BSgenome} package? It defaults to \code{TRUE}}
 
+\item{genome_seq}{Full path to the genome in FASTA format, used when \code{forge_BSgenome} is \code{FALSE}}
+
+\item{circ_chroms}{Names of the sequences to treat as circular (organelle) chromosomes}
+
 \item{create_TxDb}{Create a \code{TxDb} object and a *Rannot object? It defaults to \code{TRUE}}
+
+\item{annot_file}{specify an exact file name for the rds file created by this function, defaults to annotation_directory/basename(gtf)_Rannot}
 }
 \value{
-a TxDb file and a *Rannot files are created in the specified \code{annotation_directory}. 
+a TxDb file and a *Rannot files are created in the specified \code{annotation_directory}.
 In addition, a BSgenome object is forged, installed, and linked to the *Rannot object
 }
 \description{
-This function processes a gtf file and a twobit file (created using faToTwoBit from ucsc tools: http://hgdownload.soe.ucsc.edu/admin/exe/ ) to create a comprehensive set of genomic regions of interest in genomic and transcriptomic space (e.g. introns, UTRs, start/stop codons).
+This function processes a gtf file and a twobit file (created using faToTwoBit from ucsc tools: http://hgdownload.soe.ucsc.edu/admin/exe/ ) to create a com
+prehensive set of genomic regions of interest in genomic and transcriptomic space (e.g. introns, UTRs, start/stop codons).
    In addition, by linking genome sequence and annotation, it extracts additional info, such as gene and transcript biotypes, genetic codes for different organelles, or chromosomes and transcripts lengths.
 }
 \details{
 This function uses the \code{makeTxDbFromGFF} function to  create a TxDb object and extract
-genomic regions and other info to a *Rannot R file; the \code{mapToTranscripts} and \code{mapFromTranscripts} functions are used to 
+genomic regions and other info to a *Rannot R file; the \code{mapToTranscripts} and \code{mapFromTranscripts} functions are used to
 map features to genomic or transcript-level coordinates. GTF file mist contain "exon" and "CDS" lines,
 where each line contains "transcript_id" and "gene_id" values. Additional values such as "gene_biotype" or "gene_name" are also extracted.
-Regarding sequences, the twobit file, together with input scientific and annotation names, is used to forge and install a 
+Regarding sequences, the twobit file, together with input scientific and annotation names, is used to forge and install a
 BSgenome package using the \code{forgeBSgenomeDataPkg} function.\cr\cr
 The resulting GTF_annotation object (obtained after runnning \code{load_annotation}) contains:\cr\cr
 \code{txs}: annotated transcript boundaries.\cr
@@ -68,10 +83,21 @@ the most upstream/downstream start/stop codons and the start/stop codons residin
 \code{genome}: the name of the forged BSgenome package, or an FaFile_Circ object. Loaded with \code{load_annotation} function.\cr
 \code{stop_in_gtf}: stop codon, as defined in the annotation.\cr
 }
+\examples{
+gtf_file <- system.file("extdata", "example.gtf",
+package = "RiboseQC",mustWork = TRUE)
+twobit_file <- system.file("extdata", "example.2bit",
+                           package = "RiboseQC",mustWork = TRUE)
+output_dir <- tempdir()
+prepare_annotation_files(output_dir,twobit_file,gtf_file,
+                   scientific_name = "Arabidopsis.thaliana",
+                   annotation_name = "tair10.42" )
+
+}
 \seealso{
 \code{\link{load_annotation}}, \code{\link{forgeBSgenomeDataPkg}}, \code{\link{makeTxDbFromGFF}}.
 }
 \author{
 Lorenzo Calviello, \email{calviello.l.bio@gmail.com}
 }
-\keyword{Ribo-seQC}
+\keyword{RiboseQC}

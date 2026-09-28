@@ -14,14 +14,13 @@ Depends: Rsamtools,rmarkdown, rtracklayer, GenomicAlignments, BSgenome, GenomicF
 License: GPL-3 or above
 Encoding: UTF-8
 LazyData: FALSE
-RoxygenNote: 6.1.1
 VignetteBuilder: knitr
 Suggests: 
     testthat
 Collate: 
     'FaFile_Circ.R'
     'riboseqc.R'
-    'profile_helpers.R'
     'parallel_bam.R'
+    'profile_helpers.R'
     'riboseq_analysis.R'
-
+Config/roxygen2/version: 8.1.0

@@ -4,8 +4,7 @@
 \alias{plot_metagene_hm}
 \title{Plot 5'/P-site profiles (for all read lengths) as heatmap}
 \usage{
-plot_metagene_hm(metagene_data, scal, sample = "",
-  output_rds_path = "")
+plot_metagene_hm(metagene_data, scal, sample = "", output_rds_path = "")
 }
 \arguments{
 \item{scal}{Scaling method:
@@ -26,7 +25,7 @@ This function returns a plot that can be integrated in the html report and  #' t
 \description{
 This function plots a 5' or P-site profiles for all read lengths as heatmap
 (for a specific originating compartment, resolution type, and scaling method). \cr \cr
-This plot is used in the Ribo-seQC report in section 4.1/4.3.
+This plot is used in the RiboseQC report in section 4.1/4.3.
 }
 \seealso{
 \code{\link{create_html_report}}
@@ -34,4 +33,4 @@ This plot is used in the Ribo-seQC report in section 4.1/4.3.
 \author{
 Dominique Sydow, \email{dominique.sydow@posteo.de}
 }
-\keyword{Ribo-seQC}
+\keyword{RiboseQC}
