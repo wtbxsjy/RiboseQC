@@ -226,6 +226,11 @@ RiboseQC_analysis <- function(annotation_file, bam_files, read_subset = TRUE, re
             date(), "\n"))
     }
     
+    if (!is.null(BPPARAM) && !is.null(region_BPPARAM)) {
+        stop(paste("use either 'BPPARAM' (BAM files in parallel) or 'region_BPPARAM' (each BAM file in parallel over genomic regions), not both.", 
+            date(), "\n"))
+    }
+    
     fastainput <- is(genome_seq, "FaFile")
     
     if (fastainput) {
