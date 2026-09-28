@@ -730,6 +730,7 @@ plot_read_biotype_dist_by_length <- function(reads_summary, sample, output_rds_p
 #' for later use during plotting.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_metagene_data <- function(data, profile_type, res, comp){
 
@@ -929,6 +930,7 @@ plot_metagene_hm_rmd <- function(data, profile_type, sample="", output_rds_path=
 #' @return This function returns a plot that can be integrated in the html report and  #' that can be saved as RDS object file.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 plot_metagene_hm <- function(metagene_data, scal, sample="", output_rds_path="") {
 
@@ -1118,6 +1120,7 @@ plot_metagene_bar_rmd <- function(metagene_data, sample="", output_rds_path="") 
 #' @return This function returns a plot that can be integrated in the html report and that can be saved as RDS object file.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 plot_metagene_bar <- function(metagene_data, rl, sample="", output_rds_path="") {
 
@@ -1276,6 +1279,7 @@ plot_frame_dist_boxplot_rmd <- function(analysis_frame_cutoff, sample="", output
 #' that can be saved as RDS object file.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 
 plot_frame_dist_boxplot <- function(analysis_frame_cutoff, comp, sample="", output_rds_path="") {
@@ -1345,6 +1349,7 @@ plot_frame_dist_boxplot <- function(analysis_frame_cutoff, comp, sample="", outp
 #' @return This function returns data.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_rl_and_cutoffs <- function(rdata_list) {
     datasets <- NULL
@@ -1381,6 +1386,7 @@ get_rl_and_cutoffs <- function(rdata_list) {
 #' @return This function returns data.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_default_rl_selection <- function(rdata_list){
     datasets <- NULL
@@ -1417,6 +1423,7 @@ get_default_rl_selection <- function(rdata_list){
 #' @return This function returns data to be displayed as table in the html report.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_top50_mapping <- function(rdata_list) {
     datasets <- list()
@@ -1445,6 +1452,7 @@ get_top50_mapping <- function(rdata_list) {
 #' @return This function returns data to be displayed as table in the html report.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_top50_cds_genes <- function(rdata_list) {
     datasets <- list()
@@ -1470,6 +1478,7 @@ get_top50_cds_genes <- function(rdata_list) {
 #' @return This function returns data to be displayed as table in the html report.
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_top50_all_genes <- function(rdata_list) {
     datasets <- list()
@@ -1537,6 +1546,7 @@ get_top50_all_genes <- function(rdata_list) {
 #' }
 #'
 #' @seealso \code{\link{create_html_report}}
+#' @export
 
 get_codon_usage_data <- function(data, data_type, comp, rl) {
 
@@ -2014,6 +2024,26 @@ setMethods(f = "unlist","GRanges",function(x){return(x)})
 setMethods(f = "unlist","GAlignments",function(x){return(x)})
 
 
+# k-means with 3 clusters that gives the same result on every run: kmeans()
+# starts from random centers, which made the selected P-site offsets change
+# from one run to the next. The random number generator is seeded locally
+# (the caller's random state is restored) and several starts are used.
+kmeans3 <- function(x, seed = 1234L, nstart = 10) {
+    has_seed <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+    if (has_seed) {
+        old_seed <- get(".Random.seed", envir = globalenv())
+    }
+    on.exit({
+        if (has_seed) {
+            assign(".Random.seed", old_seed, envir = globalenv())
+        } else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+            rm(".Random.seed", envir = globalenv())
+        }
+    })
+    set.seed(seed)
+    kmeans(x, centers = 3, nstart = nstart)
+}
+
 #' Filter read lengths for P-sites position calculation
 #'
 #' This function selects a subset of readlenghts to be used in the P-sites calculation step
@@ -2138,7 +2168,7 @@ choose_readlengths<-function(summary_data,choice="max_coverage",nt_signals){
                 net_all_cov_ok<-net_all_cov
             }
             if(ln>3){
-                km<-kmeans(gains_sign,3)
+                km<-kmeans3(gains_sign)
                 net_all_cov_ok<-net_all_cov[!km$cluster==km$cluster[which.min(gains_sign)][1],]
             }
         }
@@ -2178,6 +2208,7 @@ choose_readlengths<-function(summary_data,choice="max_coverage",nt_signals){
 #' @param x a \code{GAlignments} object with a cigar string
 #' @param cutoff number representing the offset value
 #' @return a \code{GRanges} object with offset reads
+#' @export
 
 get_ps_fromspliceplus<-function(x,cutoff){
     rang<-cigarRangesAlongReferenceSpace(cigar(x), pos=start(x),ops="M")
@@ -2219,6 +2250,7 @@ get_ps_fromspliceplus<-function(x,cutoff){
 #' @param x a \code{GAlignments} object with a cigar string
 #' @param cutoff number representing the offset value
 #' @return a \code{GRanges} object with offset reads
+#' @export
 
 get_ps_fromsplicemin<-function(x,cutoff){
     rang<-cigarRangesAlongReferenceSpace(cigar(x), pos=start(x),ops="M")
@@ -2373,11 +2405,11 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max){
     km_meta<-NA
     km_meta_fra<-NA
     if(length(unique(metaprof))>3){
-        kms<-kmeans(metaprof,centers=3)$cluster
+        kms<-kmeans3(metaprof)$cluster
         km_meta<-abs(as.numeric(names(metaprof[which(kms==kms[which.max(metaprof)])[1]])))
     }
     if(length(unique(metaprof_fra))>3){
-        kms<-kmeans(metaprof_fra,centers=3)$cluster
+        kms<-kmeans3(metaprof_fra)$cluster
         km_meta_fra<-abs(as.numeric(names(metaprof_fra[which(kms==kms[which.max(metaprof_fra)])[1]])))
 
     }
@@ -2396,10 +2428,10 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max){
     cutoff_fra<-abs(as.numeric(names(tbcut_fra)[which.max(tbcut_fra)]))
     if(length(cutoff_fra)==0){cutoff_fra=NA}
     if(length(cutoff)>0 & length(unique(tbcut))>4){
-        kms<-kmeans(tbcut,centers=3)$cluster
+        kms<-kmeans3(tbcut)$cluster
         cutoff_km<-abs(as.numeric(names(tbcut[which(kms==kms[which.max(tbcut)])[1]])))
         if(length(unique(tbcut_fra))>3){
-            kms<-kmeans(tbcut_fra,centers=3)$cluster
+            kms<-kmeans3(tbcut_fra)$cluster
             cutoff_km_fra<-abs(as.numeric(names(tbcut_fra[which(kms==kms[which.max(tbcut_fra)])[1]])))
         }
     }
@@ -2436,6 +2468,8 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max){
 #' @param export_bed_tables_TxDb Export coordinates and info about different genomic regions in the annotation_directory? It defaults to \code{TRUE}
 #' @param forge_BSgenome Forge and install a \code{BSgenome} package? It defaults to \code{TRUE}
 #' @param create_TxDb Create a \code{TxDb} object and a *Rannot object? It defaults to \code{TRUE}
+#' @param genome_seq Full path to the genome in FASTA format, used when \code{forge_BSgenome} is \code{FALSE}
+#' @param circ_chroms Names of the sequences to treat as circular (organelle) chromosomes
 #' @param annot_file specify an exact file name for the rds file created by this function, defaults to annotation_directory/basename(gtf)_Rannot
 #' @details This function uses the \code{makeTxDbFromGFF} function to  create a TxDb object and extract
 #' genomic regions and other info to a *Rannot R file; the \code{mapToTranscripts} and \code{mapFromTranscripts} functions are used to
@@ -2692,7 +2726,7 @@ prepare_annotation_files<-function(annotation_directory,twobit_file=NULL,gtf_fil
 
 
          gtfdata <- import.gff2(gtf_file,colnames=c("gene_id","gene_biotype","gene_type","gene_name","gene_symbol","transcript_id","transcript_biotype","transcript_type","type"))
-         n_transcripts = length(unique(gtfdata$transcript_id))
+         n_transcripts = length(unique(na.omit(gtfdata$transcript_id)))
          stopifnot('transcript' %in% gtfdata$type)
          gtfdata <- subset(gtfdata, type=='transcript')
          gtfdata$type <- NULL

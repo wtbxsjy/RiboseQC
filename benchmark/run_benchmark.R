@@ -1,0 +1,32 @@
+# Run RiboseQC_analysis on the nf-core/riboseq test BAMs and report timings.
+# Usage: Rscript run_benchmark.R <pkg_dir> <out_dir> [data_dir] [profile(TRUE/FALSE)] [chunk_size]
+args <- commandArgs(trailingOnly = TRUE)
+pkg_dir <- normalizePath(args[1])
+out_dir <- args[2]
+data_dir <- normalizePath(if (length(args) >= 3) args[3] else file.path(pkg_dir, "benchmark", "data"))
+do_prof <- length(args) >= 4 && as.logical(args[4])
+chunk_size <- if (length(args) >= 5) as.integer(args[5]) else 5000000L
+suppressPackageStartupMessages(devtools::load_all(pkg_dir, quiet = TRUE))
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+out_dir <- normalizePath(out_dir)
+bams <- file.path(data_dir, c("SRX11780887_chr20.bam", "SRX11780888_chr20.bam"))
+# RIBOSEQC_BAMS: optional comma-separated list of BAM paths to use instead
+if (nzchar(Sys.getenv("RIBOSEQC_BAMS"))) bams <- normalizePath(strsplit(Sys.getenv("RIBOSEQC_BAMS"), ",")[[1]])
+annot <- file.path(data_dir, "annot", "Homo_sapiens.GRCh38.111_chr20.gtf_Rannot")
+dest <- file.path(out_dir, sub(".bam$", "", basename(bams)))
+if (do_prof) Rprof(file.path(out_dir, "Rprof.out"), interval = 0.02, line.profiling = TRUE)
+# RIBOSEQC_CORES: analyze the BAM files in parallel on this many cores
+n_cores <- as.integer(Sys.getenv("RIBOSEQC_CORES", "1"))
+bpparam <- if (n_cores > 1) BiocParallel::MulticoreParam(n_cores, RNGseed = 1) else NULL
+# RIBOSEQC_SEED: seed of the global random generator (the results must not depend on it)
+set.seed(as.integer(Sys.getenv("RIBOSEQC_SEED", "1")))
+run_args <- list(annotation_file = annot, bam_files = bams, dest_names = dest,
+                 create_report = FALSE, write_tmp_files = TRUE, chunk_size = chunk_size)
+if (!is.null(bpparam)) run_args$BPPARAM <- bpparam  # (older versions have no BPPARAM)
+# RIBOSEQC_REGION_CORES: analyze each BAM file in parallel over genomic windows
+region_cores <- as.integer(Sys.getenv("RIBOSEQC_REGION_CORES", "1"))
+if (region_cores > 1) run_args$region_BPPARAM <- BiocParallel::MulticoreParam(region_cores)
+tm <- system.time(do.call(RiboseQC_analysis, run_args))
+if (do_prof) Rprof(NULL)
+print(tm)
+writeLines(format(tm[["elapsed"]]), file.path(out_dir, "elapsed_seconds.txt"))
