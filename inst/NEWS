@@ -1,2 +1,13 @@
+Changes in version 1.1.9001 (2026-09-28)
++ Version bumped from 0.99.0 to 1.1.9001 so this fork is distinguishable from
+  the 0.99.0 namespace-only RiboseQC stub that the nf-core/riboseq ORFquant
+  container used to ship.  Both printing "0.99.0" made a failed install look
+  identical to a successful one.  Bioconductor devel numbering: the current
+  release is 1.1, so ".9001" marks this as an unreleased development version.
++ Functional changes are in git log, not enumerated here: deterministic
+  k-means (kmeans3) in P-site offset selection, optional BPPARAM / genomic
+  window based parallel BAM analysis, faster metagene and P-site profile
+  building.
+
 Changes in version 0.99.0 (2018-05-15)
 + Submitted to Bioconductor
