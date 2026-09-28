@@ -37,9 +37,14 @@ Rscript benchmark/run_arab_example.R . out_arab   # also takes RIBOSEQC_REGION_C
 Rscript benchmark/compare_results.R out_old out_new
 ```
 
-`run_benchmark.R` calls `set.seed(1)` first: `calc_cutoffs_from_profiles()`
-uses `kmeans()` with random starts, so without a fixed seed two runs of the
-same code on the same BAM can report different offsets.
+The original `calc_cutoffs_from_profiles()` and `choose_readlengths()` used
+`kmeans()` with random starts, so two runs on the same BAM could report
+different offsets (on SRX11780887, the offset of 27 nt reads was 12 or 9
+depending on the seed, half of the time each). They now use `kmeans3()`
+(fixed local seed, 10 starts, caller's random state restored): results do not
+depend on the seed (`RIBOSEQC_SEED=1` and `777` give identical outputs), and
+27 nt reads get offset 9 (the better of the clusterings). The scripts still
+set a seed (`RIBOSEQC_SEED`, default 1), which only matters for older versions.
 
 The Arabidopsis GTF in `inst/ext_data` has no `transcript` rows, which the
 current `prepare_annotation_files()` requires, so `run_arab_example.R` reuses
